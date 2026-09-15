@@ -1,0 +1,17 @@
+'use client';
+import Link from 'next/link';
+import {useEffect,useState} from 'react';
+import {AlertTriangle,Bell,Clock3,MailWarning,RefreshCw,ShieldAlert} from 'lucide-react';
+import {api} from '@/lib/api';
+
+type AlertPayload={summary:{overdue:number;dueSoon:number;staleWaiting:number;needsRecipient:number;escalated:number;total:number};overdue:any[];dueSoon:any[];staleWaiting:any[];needsRecipient:any[];escalated:any[];generatedAt:string};
+const fmt=(d?:string|null)=>d?new Intl.DateTimeFormat('fr-FR').format(new Date(d)):'—';
+export function ReminderAlerts({compact=false}:{compact?:boolean}){
+ const [data,setData]=useState<AlertPayload|null>(null),[msg,setMsg]=useState(''),[busy,setBusy]=useState(false);
+ const load=()=>api<AlertPayload>('/reminders/alerts').then(setData).catch((e:any)=>setMsg(e.message));
+ useEffect(()=>{load()},[]);
+ async function scan(){setBusy(true);setMsg('');try{const r:any=await api('/reminders/scan',{method:'POST'});setMsg(`${r.markedForReminder} observation(s) à relancer · ${r.escalated||0} escalade(s) · ${r.emailsSent} relance(s) envoyée(s).`);await load()}catch(e:any){setMsg(e.message)}finally{setBusy(false)}}
+ if(!data&&!msg)return <div className="card empty">Chargement des alertes…</div>;
+ return <section className="section"><div className="section-head"><div><h2><Bell size={18}/> Alertes & échéances</h2><p className="muted">Points nécessitant une action ou une surveillance.</p></div><button className="btn secondary" onClick={scan} disabled={busy}><RefreshCw size={15}/>{busy?'Scan...':'Lancer le scan'}</button></div>{msg&&<div className="notice">{msg}</div>}{data&&<><div className="grid"><Metric icon={<AlertTriangle size={18}/>} label="En retard" value={data.summary.overdue} tone="red"/><Metric icon={<Clock3 size={18}/>} label="Échéance proche" value={data.summary.dueSoon} tone="yellow"/><Metric icon={<ShieldAlert size={18}/>} label="Escaladées" value={data.summary.escalated} tone="red"/><Metric icon={<MailWarning size={18}/>} label="Destinataire manquant" value={data.summary.needsRecipient} tone="yellow"/></div>{!compact&&<div className="two" style={{marginTop:14}}><div className="card"><h3>À traiter maintenant</h3>{data.overdue.slice(0,8).map((o:any)=><Link className="integration" href={`/observations/${o.id}`} key={o.id}><div><strong>{o.title}</strong><p>{o.project?.name} · {o.company?.name||'Entreprise non assignée'} · {fmt(o.dueDate)}</p></div><span className="badge red">{o.escalationLevel?`Niv. ${o.escalationLevel}`:'Retard'}</span></Link>)}{data.overdue.length===0&&<p className="muted">Aucune observation en retard.</p>}</div><div className="card"><h3>Prochaines échéances</h3>{data.dueSoon.slice(0,8).map((o:any)=><Link className="integration" href={`/observations/${o.id}`} key={o.id}><div><strong>{o.title}</strong><p>{o.project?.name} · {o.lot?.name||'Sans lot'}</p></div><span className="badge yellow">{fmt(o.dueDate)}</span></Link>)}{data.dueSoon.length===0&&<p className="muted">Aucune échéance proche.</p>}</div></div>}</>}</section>
+}
+function Metric({icon,label,value,tone}:{icon:any;label:string;value:number;tone:string}){return <div className="card metric-card"><div className="metric-icon">{icon}</div><div><div className="muted">{label}</div><div className="metric">{value}</div><span className={`badge ${tone}`}>{value?'Action requise':'OK'}</span></div></div>}

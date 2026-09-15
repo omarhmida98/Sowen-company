@@ -1,0 +1,509 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  USER
+}
+
+enum ProjectStatus {
+  DRAFT
+  IN_ANALYSIS
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+enum BuildingType {
+  ERP
+  IGH
+  HABITATION
+  TERTIAIRE
+  AUTRE
+}
+
+enum ObservationStatus {
+  OPEN
+  TO_SEND
+  SENT
+  WAITING
+  TO_RELAUNCH
+  RESOLVED
+  BLOCKED
+}
+
+enum Severity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum EmailStatus {
+  DRAFT
+  SENT
+  DELIVERED
+  OPENED
+  RESOLVED
+  ERROR
+  NEEDS_RECIPIENT
+}
+
+enum DocumentType {
+  CONTROL_REPORT
+  PLAN
+  EVIDENCE
+  TECHNICAL_NOTE
+  OTHER
+}
+
+enum RuleSourceType {
+  REGULATION
+  DTU
+  STANDARD
+  TECHNICAL_NOTICE
+  CONTROL_OFFICE
+  INTERNAL
+  OTHER
+}
+
+enum CheckStatus {
+  PENDING
+  COMPLIANT
+  NON_COMPLIANT
+  TO_CONFIRM
+  NOT_APPLICABLE
+}
+
+enum EvidenceType {
+  BEFORE
+  AFTER
+  PHOTO
+  PV
+  CERTIFICATE
+  TECHNICAL_SHEET
+  VOICE_NOTE
+  OTHER
+}
+
+enum EvidenceReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ReportAnalysisStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  NEEDS_REVIEW
+  FAILED
+}
+
+enum NotificationKind {
+  INFO
+  DUE_SOON
+  OVERDUE
+  ESCALATION
+  EVIDENCE
+  EMAIL
+  SYSTEM
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  senderEmail String?
+  reminderDays Int @default(7)
+  dueSoonDays Int @default(3)
+  escalationDays Int @default(7)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+  projects  Project[]
+  companies Company[]
+  notifications Notification[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  passwordHash   String
+  displayName    String?
+  role           UserRole     @default(USER)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  assigned       ObservationAssignment[]
+  activities     ActivityLog[]
+  notifications  Notification[]
+}
+
+model Project {
+  id             String        @id @default(uuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  address        String?
+  buildingType   BuildingType
+  erpType        String?
+  category       String?
+  includeOwner   Boolean       @default(false)
+  status         ProjectStatus @default(DRAFT)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  lots           ProjectLot[]
+  reports        ControlReport[]
+  observations   Observation[]
+  documents      Document[]
+  workDescriptions WorkDescription[]
+  complianceChecks ComplianceCheck[]
+  generatedEmails GeneratedEmail[]
+  activities     ActivityLog[]
+  portalAccesses CompanyPortalAccess[]
+
+  @@index([organizationId, status])
+}
+
+model Company {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  email          String?
+  phone          String?
+  contactName    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  projectLots    ProjectLot[]
+  observations   Observation[]
+  portalAccesses CompanyPortalAccess[]
+
+  @@index([organizationId, name])
+}
+
+model Lot {
+  id        String        @id @default(uuid())
+  code      String?       @unique
+  name      String        @unique
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  projects  ProjectLot[]
+  rules     Rule[]
+  observations Observation[]
+}
+
+model ProjectLot {
+  id        String   @id @default(uuid())
+  projectId String
+  lotId     String
+  companyId String?
+  contactEmail String?
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lot       Lot      @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, lotId])
+}
+
+model RuleSource {
+  id        String         @id @default(uuid())
+  type      RuleSourceType
+  title     String
+  reference String?
+  publisher String?
+  sourceUrl String?
+  effectiveDate DateTime?
+  notes     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  versions  RuleVersion[]
+  rules     Rule[]
+}
+
+model Rule {
+  id           String       @id @default(uuid())
+  legacyId     String?
+  lotId        String?
+  sourceId     String?
+  lot          Lot?         @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  source       RuleSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  domain       String
+  framework    String?
+  buildingType BuildingType?
+  erpType      String?
+  category     String?
+  workType     String?
+  title        String
+  summary      String
+  condition    String?
+  requirement  String
+  controlPoint String?
+  evidenceRequired String?
+  actionRequest String?
+  severity     Severity     @default(MEDIUM)
+  actionable   Boolean      @default(true)
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  versions     RuleVersion[]
+  complianceChecks ComplianceCheck[]
+
+  @@index([domain, buildingType, erpType])
+  @@index([lotId, active])
+}
+
+model RuleVersion {
+  id          String   @id @default(uuid())
+  ruleId      String
+  sourceId    String?
+  rule        Rule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  source      RuleSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  version     Int
+  requirement String
+  actionRequest String?
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([ruleId, version])
+}
+
+model WorkDescription {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rawText     String
+  structuredContext Json?
+  aiModel     String?
+  aiConfidence Float?
+  createdAt   DateTime @default(now())
+  checks      ComplianceCheck[]
+}
+
+model ComplianceCheck {
+  id                String      @id @default(uuid())
+  projectId         String
+  workDescriptionId String?
+  ruleId            String
+  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workDescription   WorkDescription? @relation(fields: [workDescriptionId], references: [id], onDelete: SetNull)
+  rule              Rule        @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  status            CheckStatus @default(PENDING)
+  reasoning         String?
+  evidence          String?
+  confidence        Float?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@unique([projectId, ruleId, workDescriptionId])
+}
+
+model ControlReport {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documentId  String?  @unique
+  document    Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  issuer      String?
+  reportDate  DateTime?
+  analyzedAt  DateTime?
+  analysisStatus ReportAnalysisStatus @default(PENDING)
+  aiModel     String?
+  aiConfidence Float?
+  observationCount Int @default(0)
+  rawAiResult Json?
+  analysisError String?
+  rawText     String?
+  createdAt   DateTime @default(now())
+  observations Observation[]
+}
+
+model Observation {
+  id              String            @id @default(uuid())
+  projectId       String
+  reportId        String?
+  lotId           String?
+  companyId       String?
+  project         Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  report          ControlReport?    @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  lot             Lot?              @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  originalText    String?
+  title           String
+  description     String
+  reference       String?
+  requiredAction  String?
+  severity        Severity          @default(MEDIUM)
+  status          ObservationStatus @default(OPEN)
+  dueDate         DateTime?
+  sourcePage      Int?
+  aiConfidence    Float?
+  escalationLevel Int               @default(0)
+  lastEscalatedAt DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  assignments     ObservationAssignment[]
+  history         ObservationHistory[]
+  generatedEmails GeneratedEmail[]
+  evidence         ObservationEvidence[]
+}
+
+model ObservationAssignment {
+  id            String      @id @default(uuid())
+  observationId String
+  userId        String
+  observation   Observation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@unique([observationId, userId])
+}
+
+model ObservationHistory {
+  id            String      @id @default(uuid())
+  observationId String
+  observation   Observation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  fromStatus    ObservationStatus?
+  toStatus      ObservationStatus
+  note          String?
+  createdAt     DateTime    @default(now())
+}
+
+model Document {
+  id          String       @id @default(uuid())
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type        DocumentType
+  name        String
+  storageKey  String
+  mimeType    String?
+  sizeBytes   Int?
+  uploadedAt  DateTime     @default(now())
+  reports     ControlReport[]
+  evidence    ObservationEvidence[]
+}
+
+model GeneratedEmail {
+  id            String      @id @default(uuid())
+  projectId     String
+  observationId String?
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  observation   Observation? @relation(fields: [observationId], references: [id], onDelete: SetNull)
+  recipientEmail String?
+  subject       String
+  body          String
+  dueDate       DateTime?
+  status        EmailStatus @default(DRAFT)
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  openedAt      DateTime?
+  resolvedAt    DateTime?
+  lastRemindedAt DateTime?
+  reminderCount Int         @default(0)
+  providerMessageId String?
+  errorMessage  String?
+  resolveToken  String      @unique @default(uuid())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  events        EmailEvent[]
+
+  @@index([projectId, status])
+}
+
+model EmailEvent {
+  id               String         @id @default(uuid())
+  generatedEmailId String
+  generatedEmail   GeneratedEmail @relation(fields: [generatedEmailId], references: [id], onDelete: Cascade)
+  type             String
+  providerEventId  String?
+  payload          Json?
+  createdAt        DateTime       @default(now())
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  projectId String?
+  userId    String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entityType String?
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+
+model ObservationEvidence {
+  id              String               @id @default(uuid())
+  observationId   String
+  documentId      String?              @unique
+  type            EvidenceType         @default(OTHER)
+  note            String?
+  reviewStatus    EvidenceReviewStatus @default(PENDING)
+  reviewNote      String?
+  reviewedAt      DateTime?
+  reviewedById    String?
+  submittedByCompany Boolean            @default(false)
+  observation     Observation           @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  document        Document?             @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  createdAt       DateTime              @default(now())
+
+  @@index([observationId, type])
+  @@index([observationId, reviewStatus])
+}
+
+model CompanyPortalAccess {
+  id        String   @id @default(uuid())
+  companyId String
+  projectId String
+  token     String   @unique @default(uuid())
+  expiresAt DateTime?
+  revokedAt DateTime?
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([companyId, projectId])
+}
+
+model Notification {
+  id             String               @id @default(uuid())
+  organizationId String
+  userId         String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dedupeKey      String               @unique
+  kind           NotificationKind     @default(INFO)
+  priority       NotificationPriority @default(MEDIUM)
+  title          String
+  message        String
+  href           String?
+  readAt         DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([userId, readAt, createdAt])
+  @@index([organizationId, createdAt])
+}

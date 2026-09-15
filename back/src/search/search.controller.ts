@@ -1,0 +1,2 @@
+import {Controller,Get,Query} from '@nestjs/common';import {SearchService} from './search.service';import {CurrentUser} from '../auth/decorators/current-user.decorator';import type {AuthUser} from '../auth/auth.types';
+@Controller('search')export class SearchController{constructor(private s:SearchService){}@Get()search(@CurrentUser()user:AuthUser,@Query('q')q=''){return this.s.search(q,user.organizationId)}}

@@ -1,0 +1,20 @@
+{
+  "name": "sowen-v2",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "front",
+    "back"
+  ],
+  "scripts": {
+    "dev:front": "npm --workspace front run dev",
+    "dev:back": "npm --workspace back run dev",
+    "build": "npm --workspace back run build && npm --workspace front run build",
+    "db:generate": "npm --workspace back run prisma:generate",
+    "db:migrate": "npm --workspace back run prisma:migrate",
+    "db:seed": "npm --workspace back run prisma:seed",
+    "check": "npm --workspace back run typecheck && npm --workspace front run typecheck",
+    "preflight": "node tools/preflight.mjs",
+    "release:check": "npm run preflight && npm run check && npm run build"
+  }
+}

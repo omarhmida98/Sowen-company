@@ -1,0 +1,2 @@
+import {Controller,Get,Param} from '@nestjs/common';import {AnalyticsService} from './analytics.service';import {CurrentUser} from '../auth/decorators/current-user.decorator';import type {AuthUser} from '../auth/auth.types';
+@Controller('analytics') export class AnalyticsController{constructor(private s:AnalyticsService){}@Get('management')management(@CurrentUser()user:AuthUser){return this.s.management(user.organizationId)}@Get('projects/:id/score')score(@Param('id')id:string,@CurrentUser()user:AuthUser){return this.s.projectScore(id,user.organizationId)}}

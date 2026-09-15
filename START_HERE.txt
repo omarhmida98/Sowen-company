@@ -1,0 +1,24 @@
+SOWEN V2 — DEMARRAGE
+
+1) npm install
+2) docker compose up -d
+3) copier back/.env.example vers back/.env
+4) copier front/.env.example vers front/.env.local
+5) npm run db:generate
+6) npm run db:migrate
+7) Terminal 1 : npm run dev:back
+8) Terminal 2 : npm run dev:front
+9) Ouvrir http://localhost:3000/register au premier lancement
+
+DATABASE_URL locale par défaut :
+postgresql://sowen:sowen_dev_password@localhost:5432/sowen?schema=public
+
+OPENAI_API_KEY et RESEND_API_KEY peuvent rester vides au début.
+
+Après chaque modification du schema Prisma :
+npm run db:migrate
+
+AVANT LA MISE EN SERVICE :
+- lire docs/FINAL_TEST_GUIDE.md
+- lancer npm run release:check
+- ne jamais versionner back/.env ni front/.env.local

@@ -1,0 +1,1 @@
+import {Module} from '@nestjs/common';import {ProjectLotsController} from './project-lots.controller';import {ProjectLotsService} from './project-lots.service';@Module({controllers:[ProjectLotsController],providers:[ProjectLotsService]}) export class ProjectLotsModule{}

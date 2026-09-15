@@ -1,0 +1,32 @@
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { ObservationsService } from './observations.service';
+import { AssignObservationDto, CreateObservationDto, TransitionObservationDto, UpdateObservationDto } from './observations.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import type { AuthUser } from '../auth/auth.types';
+
+@Controller('observations')
+export class ObservationsController {
+  constructor(private service: ObservationsService) {}
+
+  @Get()
+  list(@CurrentUser() user: AuthUser, @Query('projectId') projectId?: string) { return this.service.list(user.organizationId, projectId); }
+
+  @Get(':id')
+  get(@Param('id') id: string, @CurrentUser() user: AuthUser) { return this.service.get(id, user.organizationId); }
+
+  @Roles('ADMIN','EDITOR') @Post()
+  create(@Body() dto: CreateObservationDto, @CurrentUser() user: AuthUser) { return this.service.create(dto, user.organizationId, user.sub); }
+
+  @Roles('ADMIN','EDITOR') @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateObservationDto, @CurrentUser() user: AuthUser) { return this.service.update(id, dto, user.organizationId, user.sub); }
+
+  @Roles('ADMIN','EDITOR') @Post(':id/status')
+  transition(@Param('id') id: string, @Body() dto: TransitionObservationDto, @CurrentUser() user: AuthUser) { return this.service.transition(id, dto, user.organizationId, user.sub); }
+
+  @Roles('ADMIN','EDITOR') @Post(':id/assign')
+  assign(@Param('id') id: string, @Body() dto: AssignObservationDto, @CurrentUser() user: AuthUser) { return this.service.assign(id, dto, user.organizationId, user.sub); }
+
+  @Roles('ADMIN','EDITOR') @Delete(':id/assign/:userId')
+  unassign(@Param('id') id: string, @Param('userId') assigneeId: string, @CurrentUser() user: AuthUser) { return this.service.unassign(id, assigneeId, user.organizationId, user.sub); }
+}
