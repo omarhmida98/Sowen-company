@@ -1,0 +1,1 @@
+import {NewProjectForm} from '@/components/NewProjectForm';export default function Page(){return <><div className="topbar"><div className="title"><div className="eyebrow">Projets</div><h1>Nouveau projet</h1><p>Crée le contexte chantier avant d’ajouter les entreprises, documents et contrôles.</p></div></div><NewProjectForm/></>}

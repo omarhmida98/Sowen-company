@@ -28,7 +28,7 @@ If PostgreSQL cannot be reached, the endpoint returns HTTP 503.
 
 ## Settings integration status
 
-`GET /api/system/status` now verifies PostgreSQL instead of returning a hard-coded `true`, and also reports whether OpenAI, Resend, S3/R2, reminder automation, and daily digest are configured.
+`GET /api/system/status` now verifies PostgreSQL instead of returning a hard-coded `true`, and also reports whether Gemini, Resend, S3/R2, reminder automation, and daily digest are configured.
 
 ## Upload hardening
 

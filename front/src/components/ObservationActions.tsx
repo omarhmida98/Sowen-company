@@ -12,24 +12,25 @@ export function ObservationActions({id,projectId,status,emailId}:Props){
   const router=useRouter();
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState('');
+  const [isErr,setIsErr]=useState(false);
 
   async function transition(next:string,note?:string){
-    setBusy(true);setMsg('');
+    setBusy(true);setMsg('');setIsErr(false);
     try{
       await api(`/observations/${id}/status`,{method:'POST',body:JSON.stringify({status:next,note})});
       router.refresh();
-      setMsg('Statut mis à jour.');
-    }catch(e:any){setMsg(e.message)}finally{setBusy(false)}
+      setMsg('Statut mis à jour.');setIsErr(false);
+    }catch(e:any){setMsg(e.message);setIsErr(true)}finally{setBusy(false)}
   }
 
   async function remind(){
-    if(!emailId){setMsg('Aucun brouillon/mail associé à cette observation.');return}
-    setBusy(true);setMsg('');
+    if(!emailId){setMsg('Aucun brouillon ou mail associé à cette observation.');setIsErr(true);return}
+    setBusy(true);setMsg('');setIsErr(false);
     try{
       await api(`/emails/${emailId}/remind`,{method:'POST'});
       router.refresh();
-      setMsg('Relance envoyée.');
-    }catch(e:any){setMsg(e.message)}finally{setBusy(false)}
+      setMsg('Relance envoyée.');setIsErr(false);
+    }catch(e:any){setMsg(e.message);setIsErr(true)}finally{setBusy(false)}
   }
 
   const canClose=status!=='RESOLVED';
@@ -46,6 +47,6 @@ export function ObservationActions({id,projectId,status,emailId}:Props){
       {canClose&&<button disabled={busy} onClick={()=>transition('RESOLVED','Observation validée et clôturée')}><CheckCircle2 size={17}/>Clôturer</button>}
       {!['BLOCKED','RESOLVED'].includes(status)&&<button disabled={busy} onClick={()=>transition('BLOCKED','Point bloqué - intervention requise')}><ShieldAlert size={17}/>Bloquer</button>}
     </div>
-    {msg&&<div className={msg.includes('Aucun')||msg.includes('API')||msg.includes('non autorisée')?'notice error':'notice'}>{msg}</div>}
+    {msg&&<div className={isErr?'notice error':'notice'}>{msg}</div>}
   </>
 }

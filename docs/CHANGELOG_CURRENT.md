@@ -12,7 +12,7 @@
 - règles : liste + création
 - pré-contrôle : sauvegarde description + filtrage des règles réelles
 - documents : upload réel local + métadonnées PostgreSQL
-- rapports BC : upload PDF + extraction texte + analyse OpenAI optionnelle
+- rapports BC : upload PDF + extraction texte + analyse Gemini optionnelle
 - emails : envoi individuel + envoi brouillons + relance
 - journal activité
 - paramètres organisation
@@ -22,7 +22,7 @@
 ## Enhancement pass - 14 Sep 2026
 - Dark mode toggle persisted in browser.
 - French / English UI toggle persisted in browser.
-- AI-assisted pre-check context (risks, required documents, contractor instructions) when `OPENAI_API_KEY` is configured.
+- AI-assisted pre-check context (risks, required documents, contractor instructions) when `GEMINI_API_KEY` is configured.
 - Bureau de Contrôle PDF analysis enhanced with lot, company, severity, page and AI confidence.
 - Observation evidence: before/after photos, photos, PV, certificates, technical sheets and voice notes.
 - Compliance score per project and management risk dashboard.
@@ -47,7 +47,7 @@
 - Rules creation/version/archive restricted to ADMIN and every new rule creates version 1 automatically.
 
 ## AI report analysis & pre-control hardening
-- Added centralized `AiService` and `OPENAI_MODEL` configuration.
+- Added centralized `AiService` and `GEMINI_MODEL` configuration.
 - Bureau de Contrôle PDF analysis now stores AI model, average confidence, analysis status, raw AI result, observation count and errors.
 - Added `PENDING / PROCESSING / COMPLETED / NEEDS_REVIEW / FAILED` report analysis states.
 - Added low-confidence review flag and report re-analysis endpoint.

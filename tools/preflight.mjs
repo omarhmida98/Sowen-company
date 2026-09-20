@@ -33,7 +33,7 @@ function walk(dir, out = []) {
 const sourceFiles = ['front/src', 'back/src'].flatMap((d) => walk(path.join(root, d))).filter((p) => /\.(ts|tsx)$/.test(p));
 for (const p of sourceFiles) {
   const text = fs.readFileSync(p, 'utf8');
-  if (/sk-[A-Za-z0-9_-]{20,}/.test(text)) problems.push(`Possible OpenAI key committed in ${path.relative(root, p)}`);
+  if (/sk-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_\-]{20,}/.test(text)) problems.push(`Possible AI provider key committed in ${path.relative(root, p)}`);
   if (/re_[A-Za-z0-9_-]{20,}/.test(text)) problems.push(`Possible Resend key committed in ${path.relative(root, p)}`);
 }
 

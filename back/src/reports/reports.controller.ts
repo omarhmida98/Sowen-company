@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsString } from 'class-validator';
 import { ReportsService } from './reports.service';
@@ -19,6 +19,16 @@ export class ReportsController {
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('projectId') projectId?: string) {
     return this.service.list(user.organizationId, projectId);
+  }
+
+  @Get(':reportId')
+  detail(@Param('reportId') reportId: string, @CurrentUser() user: AuthUser) {
+    return this.service.detail(reportId, user.organizationId);
+  }
+
+  @Get(':reportId/file')
+  file(@Param('reportId') reportId: string, @CurrentUser() user: AuthUser) {
+    return this.service.downloadFile(reportId, user.organizationId);
   }
 
   @Roles('ADMIN','EDITOR')
@@ -45,5 +55,11 @@ export class ReportsController {
   @Post(':reportId/reanalyze')
   reanalyze(@Param('reportId') reportId: string, @CurrentUser() user: AuthUser) {
     return this.service.reanalyze(reportId, user.organizationId, user.sub);
+  }
+
+  @Roles('ADMIN','EDITOR')
+  @Post(':reportId/materialize')
+  materialize(@Param('reportId') reportId: string, @CurrentUser() user: AuthUser) {
+    return this.service.materialize(reportId, user.organizationId, user.sub);
   }
 }

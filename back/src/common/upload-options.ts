@@ -1,4 +1,5 @@
 import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
+import { BadRequestException } from '@nestjs/common';
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -18,7 +19,7 @@ export const generalUploadOptions: MulterOptions = {
   limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (_req, file, cb) => {
     if (allowedGeneralMimeTypes.has(file.mimetype)) return cb(null, true);
-    cb(new Error('Unsupported file type'), false);
+    cb(new BadRequestException('Unsupported file type') as unknown as Error, false);
   },
 };
 
@@ -27,6 +28,6 @@ export const pdfUploadOptions: MulterOptions = {
   fileFilter: (_req, file, cb) => {
     const ok = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
     if (ok) return cb(null, true);
-    cb(new Error('Only PDF files are supported'), false);
+    cb(new BadRequestException('Only PDF files are supported') as unknown as Error, false);
   },
 };

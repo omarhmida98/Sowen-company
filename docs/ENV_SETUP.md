@@ -5,13 +5,16 @@
 ### Requis en local
 - `DATABASE_URL` : connexion PostgreSQL utilisée par Prisma.
 - `API_PORT` : port NestJS, par défaut `4000`.
-- `WEB_URL` : origine autorisée CORS, par défaut `http://localhost:3000`.
+- `WEB_URL` : liste des origines autorisées CORS, séparées par des virgules. Par défaut `http://localhost:3000`. Exemple avec un tunnel ngrok :
+  ```env
+  WEB_URL="http://localhost:3000,https://mon-tunnel.ngrok-free.app"
+  ```
 - `JWT_ACCESS_SECRET` : secret généré localement.
 - `JWT_REFRESH_SECRET` : deuxième secret distinct.
 
 ### Optionnel
-- `OPENAI_API_KEY` : nécessaire uniquement pour analyser automatiquement le contenu des rapports BC.
-- `OPENAI_MODEL` : modèle utilisé par le module rapports.
+- `GEMINI_API_KEY` : nécessaire uniquement pour analyser automatiquement le contenu des rapports BC.
+- `GEMINI_MODEL` : modèle utilisé par le module rapports.
 - `RESEND_API_KEY` + `RESEND_FROM` : nécessaires uniquement pour envoyer les emails et relances.
 - variables `S3_*` : réservées au stockage objet de production.
 
@@ -27,10 +30,10 @@ Aucune clé privée ne doit être mise dans le frontend.
 
 ## Fonctionnalités avancées
 ### Analyse IA / pré-contrôle IA
-Créer une clé API OpenAI et renseigner uniquement le backend :
+Créer une clé API Gemini (Google AI Studio) et renseigner uniquement le backend :
 ```env
-OPENAI_API_KEY="..."
-OPENAI_MODEL="gpt-5-mini"
+GEMINI_API_KEY="..."
+GEMINI_MODEL="gemini-3.6-flash"
 ```
 Sans clé, le pré-contrôle réglementaire reste utilisable avec le moteur de règles PostgreSQL, mais l'extraction IA des risques/documents n'est pas exécutée.
 

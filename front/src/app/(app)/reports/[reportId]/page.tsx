@@ -1,0 +1,132 @@
+'use client';
+import {useEffect,useState} from 'react';
+import Link from 'next/link';
+import {useParams} from 'next/navigation';
+import {ArrowLeft,DownloadCloud,RefreshCw,ListChecks,FileSearch} from 'lucide-react';
+import {api,ApiReportDetail,severityLabel,statusLabel,analysisStatusLabel,ANALYSIS_STATUS_TONE} from '@/lib/api';
+
+const SEV_TONE: Record<string,string> = { CRITICAL: 'red', HIGH: 'red', MEDIUM: 'yellow', LOW: '', INFO: '' };
+const fmt = (d?: string | null) => d ? new Intl.DateTimeFormat('fr-FR').format(new Date(d)) : '—';
+function friendlyError(raw?: string | null) {
+  if (!raw) return null;
+  try { const parsed = JSON.parse(raw); if (parsed?.error?.message) return String(parsed.error.message); } catch {}
+  return raw;
+}
+
+export default function ReportDetailPage(){
+  const params = useParams<{ reportId: string }>();
+  const reportId = params.reportId;
+  const [report, setReport] = useState<ApiReportDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<'reanalyze' | 'materialize' | null>(null);
+  const [msg, setMsg] = useState(''); const [isErr, setIsErr] = useState(false);
+
+  const load = () => { api<ApiReportDetail>(`/reports/${reportId}`).then(setReport).catch(() => setReport(null)).finally(() => setLoading(false)); };
+  useEffect(() => { setLoading(true); load(); }, [reportId]);
+
+  async function reanalyze() {
+    setBusy('reanalyze'); setMsg(''); setIsErr(false);
+    try { const r: any = await api(`/reports/${reportId}/reanalyze`, { method: 'POST' }); load(); setMsg(`${r.createdObservations ?? 0} observation(s) créée(s).`); }
+    catch (e: any) { setMsg(e.message); setIsErr(true); }
+    finally { setBusy(null); }
+  }
+  async function materialize() {
+    setBusy('materialize'); setMsg(''); setIsErr(false);
+    try { const r: any = await api(`/reports/${reportId}/materialize`, { method: 'POST' }); load(); setMsg(r.alreadyMaterialized ? 'Observations déjà matérialisées.' : `${r.created ?? 0} observation(s) créée(s).`); }
+    catch (e: any) { setMsg(e.message); setIsErr(true); }
+    finally { setBusy(null); }
+  }
+  async function download() {
+    const token = localStorage.getItem('sowen_access_token');
+    const base = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api';
+    const res = await fetch(`${base}/reports/${reportId}/file`, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+    if (!res.ok) { setMsg('Téléchargement impossible.'); setIsErr(true); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = report?.document?.name || 'rapport-bc.pdf'; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (loading) return <><div className="card empty">Chargement…</div></>;
+  if (!report) return <><div className="card"><h2>Rapport introuvable</h2><p className="muted">Aucune donnée réelle ne correspond à cet identifiant.</p></div></>;
+
+  const statusTone = ANALYSIS_STATUS_TONE[report.analysisStatus] || 'yellow';
+  const canReanalyze = report.aiConfigured && report.analysisStatus !== 'PROCESSING' && !busy;
+  const canMaterialize = report.detectedObservations > 0 && report.observationCount === 0 && (report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && !busy;
+
+  return <>
+    <div className="topbar">
+      <div className="title">
+        <div className="eyebrow">Bureau de Contrôle · Rapport</div>
+        <h1>{report.document?.name || 'Rapport BC'}</h1>
+        <p>
+          <Link href={`/projects/${report.projectId}`}>{report.project.name}</Link>
+          {report.issuer ? ` · ${report.issuer}` : ' · Émetteur non renseigné'}
+        </p>
+      </div>
+      <div className="actions">
+        <Link className="btn secondary" href="/reports"><ArrowLeft size={16}/>← Rapports</Link>
+        {report.document && <button className="btn secondary" onClick={download} disabled={busy !== null}><DownloadCloud size={16}/>Télécharger le PDF</button>}
+        <button className="btn" onClick={reanalyze} disabled={!canReanalyze} title={report.aiConfigured ? undefined : "Gemini n'est pas configuré."}><RefreshCw size={16}/>Relancer l'analyse</button>
+      </div>
+    </div>
+
+    {msg && <div className={isErr ? 'notice error' : 'notice'}>{msg}</div>}
+
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div className="badges">
+        <span className={`badge ${statusTone}`}>{analysisStatusLabel(report.analysisStatus)}</span>
+        <span className="badge">{report.observationCount} observation(s) en base</span>
+        <span className="badge">{report.detectedObservations} détectée(s) par l'IA</span>
+        <span className="badge">{report.rawTextLength} caractères</span>
+        {report.document?.sizeBytes ? <span className="badge">{(report.document.sizeBytes / 1024).toFixed(0)} Ko</span> : null}
+      </div>
+      <div className="detail-grid">
+        <div className="detail-block"><small>Émetteur</small><p>{report.issuer || 'Non renseignée'}</p></div>
+        <div className="detail-block"><small>Date d'import</small><p>{fmt(report.createdAt)}</p></div>
+        <div className="detail-block"><small>Projet lié</small><p><Link href={`/projects/${report.projectId}`}>{report.project.name}</Link></p></div>
+        <div className="detail-block"><small>Gemini configuré</small><p>{report.aiConfigured ? 'Oui' : 'Non'}</p></div>
+        <div className="detail-block"><small>Modèle IA</small><p>{report.aiModel || '—'}</p></div>
+        <div className="detail-block"><small>Confiance moyenne</small><p>{typeof report.aiConfidence === 'number' ? `${Math.round(report.aiConfidence * 100)}%` : '—'}</p></div>
+      </div>
+      {report.analysisError && <div className="detail-block" style={{ marginTop: 8 }}><small>Erreur d'analyse</small><p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{friendlyError(report.analysisError)}</p></div>}
+    </div>
+
+    {report.analysisStatus === 'PENDING' && <div className="notice">Analyse en attente — la clé Gemini n'est pas configurée. Configurez GEMINI_API_KEY puis relancez l'analyse.</div>}
+    {report.analysisStatus === 'PROCESSING' && <div className="notice">L'analyse IA de ce rapport est en cours…</div>}
+    {report.analysisStatus === 'FAILED' && <div className="notice error">Échec de l'analyse IA. {friendlyError(report.analysisError) || "Vérifiez la configuration Gemini puis relancez l'analyse."}</div>}
+    {(report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && report.observationCount === 0 && report.detectedObservations === 0 && <div className="notice">Analyse terminée — aucune observation détectée</div>}
+    {(report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && report.observationCount === 0 && report.detectedObservations > 0 && <div className="notice">Aucune observation détectée par l'IA.</div>}
+
+    {report.detectedObservations > 0 && report.observationCount === 0 && !canMaterialize && <div className="notice" style={{ marginTop: 8 }}>Des observations ont été détectées mais ne sont pas encore en base.</div>}
+
+    {(canMaterialize) && <div className="actions" style={{ margin: '14px 0' }}>
+      <button className="btn" onClick={materialize} disabled={busy !== null}><ListChecks size={16}/>Matérialiser les observations</button>
+    </div>}
+
+    <div className="section">
+      <div className="section-head"><div><h2><FileSearch size={18}/>Observations</h2><p className="muted">Points extraits du rapport de contrôle.</p></div></div>
+      {report.observations.length === 0
+        ? <div className="card empty">Aucune observation en base pour ce rapport.</div>
+        : <div className="project-list">{report.observations.map(o => (
+          <div className="card" key={o.id}>
+            <div className="badges">
+              <span className={`badge ${SEV_TONE[o.severity] || ''}`}>{severityLabel(o.severity)}</span>
+              <span className="badge yellow">{statusLabel(o.status)}</span>
+              {o.sourcePage ? <span className="badge">Page {o.sourcePage}</span> : null}
+              {typeof o.aiConfidence === 'number' && <span className="confidence">Confiance {Math.round(o.aiConfidence * 100)}%</span>}
+            </div>
+            <h3>{o.title}</h3>
+            {o.description !== o.title && <p>{o.description}</p>}
+            <div className="detail-grid">
+              <div className="detail-block"><small>Référence</small><p>{o.reference || 'Non renseignée'}</p></div>
+              <div className="detail-block"><small>Action attendue</small><p>{o.requiredAction || 'Non renseignée'}</p></div>
+              <div className="detail-block"><small>Lot</small><p>{o.lot ? `✓ ${o.lot.name}` : (o.suggestedLotName ? `✗ ${o.suggestedLotName} (non associé)` : 'Aucun lot')}</p></div>
+              <div className="detail-block"><small>Entreprise</small><p>{o.company ? `✓ ${o.company.name}` : (o.suggestedCompanyName ? `✗ ${o.suggestedCompanyName} (non associé)` : 'Aucune entreprise')}</p></div>
+            </div>
+            <Link className="btn secondary" href={`/observations/${o.id}`} style={{ marginTop: 12 }}>Voir l'observation</Link>
+          </div>
+        ))}</div>}
+    </div>
+  </>;
+}

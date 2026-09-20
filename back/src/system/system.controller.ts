@@ -23,7 +23,7 @@ export class SystemController {
     return {
       database,
       databaseError,
-      openai: Boolean(this.config.get('OPENAI_API_KEY')),
+      gemini: Boolean(this.config.get('GEMINI_API_KEY')),
       resend: Boolean(this.config.get('RESEND_API_KEY') && this.config.get('RESEND_FROM')),
       storage: Boolean(
         this.config.get('S3_BUCKET') &&

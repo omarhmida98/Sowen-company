@@ -1,0 +1,1 @@
+export default function Loading(){return <><div className="grid"><div className="card"><div className="muted">Chargement…</div></div><div className="card"><div className="muted">Chargement…</div></div><div className="card"><div className="muted">Chargement…</div></div><div className="card"><div className="muted">Chargement…</div></div></div></>}
