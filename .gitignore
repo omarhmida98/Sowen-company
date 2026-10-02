@@ -10,5 +10,6 @@ coverage/
 *.log
 .DS_Store
 .vscode/
+.claude/settings.local.json
 back/uploads/
 uploads/
