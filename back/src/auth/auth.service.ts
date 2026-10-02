@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
@@ -27,7 +27,15 @@ export class AuthService {
     return { id: user.id, email: user.email, displayName: user.displayName, role: user.role, organizationId: user.organizationId };
   }
 
+  // Self-registration is closed once the installation has its first account, unless ALLOW_PUBLIC_REGISTRATION=true.
+  // Further users are created by an administrator from the team page.
+  async registrationOpen() {
+    if ((this.config.get<string>('ALLOW_PUBLIC_REGISTRATION') || '').trim().toLowerCase() === 'true') return true;
+    return (await this.prisma.user.count()) === 0;
+  }
+
   async register(dto: RegisterDto) {
+    if (!(await this.registrationOpen())) throw new ForbiddenException('La création de compte est désactivée. Demandez à un administrateur de vous ajouter.');
     const email = dto.email.trim().toLowerCase();
     if (await this.prisma.user.findUnique({ where: { email } })) throw new BadRequestException('Email already used');
     const passwordHash = await bcrypt.hash(dto.password, 12);

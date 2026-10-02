@@ -102,7 +102,7 @@ NEXT_PUBLIC_API_URL="http://localhost:4000/api"
 ```
 
 ## Premier démarrage
-1. Aller sur `/register`.
+1. Aller sur `/register` (accessible uniquement tant qu'aucun compte n'existe ; ensuite les utilisateurs sont ajoutés par un administrateur).
 2. Créer le compte de Youssef / l'organisation.
 3. Créer les lots nécessaires dans `Lots`.
 4. Créer un projet.

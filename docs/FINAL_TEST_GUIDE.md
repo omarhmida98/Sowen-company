@@ -75,7 +75,7 @@ Tester :
 
 - API : `http://localhost:4000/api/health`
 - Front : `http://localhost:3000`
-- Premier compte : `http://localhost:3000/register`
+- Premier compte : `http://localhost:3000/register` (fermé ensuite ; `ALLOW_PUBLIC_REGISTRATION="true"` dans `back/.env` pour le rouvrir)
 
 ## 6. Smoke test métier
 

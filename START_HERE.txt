@@ -8,7 +8,7 @@ SOWEN V2 — DEMARRAGE
 6) npm run db:migrate
 7) Terminal 1 : npm run dev:back
 8) Terminal 2 : npm run dev:front
-9) Ouvrir http://localhost:3000/register au premier lancement
+9) Ouvrir http://localhost:3000/register au premier lancement (la page se ferme une fois le premier compte créé)
 
 DATABASE_URL locale par défaut :
 postgresql://sowen:sowen_dev_password@localhost:5432/sowen?schema=public
