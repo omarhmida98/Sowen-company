@@ -1,4 +1,4 @@
 import type {Metadata} from 'next';import './globals.css';import {PreferencesBoot} from '@/components/Preferences';
 export const metadata:Metadata={title:'SOWEN',description:'Pré-contrôle et suivi des non-conformités chantier'};
-const boot="(function(){try{var d=document.documentElement,t=localStorage.getItem('sowen_theme')||'light',l=localStorage.getItem('sowen_lang')||'fr';d.setAttribute('data-theme',t);d.setAttribute('data-lang',l);d.setAttribute('lang',l)}catch(e){}})()";
-export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="fr" suppressHydrationWarning><body><script dangerouslySetInnerHTML={{__html:boot}}/><PreferencesBoot/>{children}</body></html>}
+const boot="(function(){try{var d=document.documentElement,t=localStorage.getItem('sowen_theme')||'light',l=localStorage.getItem('sowen_lang')||'fr';d.setAttribute('data-theme',t);d.setAttribute('data-lang',l);d.setAttribute('lang',l)}catch(e){}setTimeout(function(){document.documentElement.setAttribute('data-i18n-ready','')},4000)})()";
+export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="fr" suppressHydrationWarning><body><script dangerouslySetInnerHTML={{__html:boot}}/><PreferencesBoot>{children}</PreferencesBoot></body></html>}
