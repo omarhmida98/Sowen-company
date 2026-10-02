@@ -6,6 +6,8 @@ import {ArrowLeft,DownloadCloud,RefreshCw,ListChecks,FileSearch} from 'lucide-re
 import {api,ApiReportDetail,severityLabel,statusLabel,analysisStatusLabel,ANALYSIS_STATUS_TONE} from '@/lib/api';
 
 const SEV_TONE: Record<string,string> = { CRITICAL: 'red', HIGH: 'red', MEDIUM: 'yellow', LOW: '', INFO: '' };
+const CATEGORY_LABEL: Record<string,string> = { OBSERVATION: 'Observation', NON_CONFORMITY: 'Non-conformité', RESERVATION: 'Réserve', TECHNICAL_REMARK: 'Remarque technique', RECOMMENDATION: 'Recommandation' };
+const pct = (n?: number | null) => typeof n === 'number' ? `${Math.round(n * 100)}%` : '—';
 const fmt = (d?: string | null) => d ? new Intl.DateTimeFormat('fr-FR').format(new Date(d)) : '—';
 function friendlyError(raw?: string | null) {
   if (!raw) return null;
@@ -67,7 +69,7 @@ export default function ReportDetailPage(){
       <div className="actions">
         <Link className="btn secondary" href="/reports"><ArrowLeft size={16}/>← Rapports</Link>
         {report.document && <button className="btn secondary" onClick={download} disabled={busy !== null}><DownloadCloud size={16}/>Télécharger le PDF</button>}
-        <button className="btn" onClick={reanalyze} disabled={!canReanalyze} title={report.aiConfigured ? undefined : "Gemini n'est pas configuré."}><RefreshCw size={16}/>Relancer l'analyse</button>
+        <button className="btn" onClick={reanalyze} disabled={!canReanalyze} title={report.aiConfigured ? undefined : "L'analyse IA n'est pas configurée."}><RefreshCw size={16}/>Relancer l'analyse</button>
       </div>
     </div>
 
@@ -85,17 +87,32 @@ export default function ReportDetailPage(){
         <div className="detail-block"><small>Émetteur</small><p>{report.issuer || 'Non renseignée'}</p></div>
         <div className="detail-block"><small>Date d'import</small><p>{fmt(report.createdAt)}</p></div>
         <div className="detail-block"><small>Projet lié</small><p><Link href={`/projects/${report.projectId}`}>{report.project.name}</Link></p></div>
-        <div className="detail-block"><small>Gemini configuré</small><p>{report.aiConfigured ? 'Oui' : 'Non'}</p></div>
-        <div className="detail-block"><small>Modèle IA</small><p>{report.aiModel || '—'}</p></div>
-        <div className="detail-block"><small>Confiance moyenne</small><p>{typeof report.aiConfidence === 'number' ? `${Math.round(report.aiConfidence * 100)}%` : '—'}</p></div>
+        <div className="detail-block"><small>Analyse IA configurée</small><p>{report.aiConfigured ? 'Oui' : 'Non'}</p></div>
+        <div className="detail-block"><small>Fournisseur IA</small><p>{report.aiProvider || 'Claude'}</p></div>
+        <div className="detail-block"><small>Modèle IA</small><p>{report.aiModel || report.configuredModel || '—'}</p></div>
+        <div className="detail-block"><small>Confiance de l'analyse</small><p>{pct(report.aiConfidence)}</p></div>
       </div>
       {report.analysisError && <div className="detail-block" style={{ marginTop: 8 }}><small>Erreur d'analyse</small><p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{friendlyError(report.analysisError)}</p></div>}
     </div>
 
-    {report.analysisStatus === 'PENDING' && <div className="notice">Analyse en attente — la clé Gemini n'est pas configurée. Configurez GEMINI_API_KEY puis relancez l'analyse.</div>}
+    {report.analysis && <div className="card" style={{ marginBottom: 16 }}>
+      <div className="badges">
+        <span className="badge">{report.analysis.documentType}</span>
+        <span className={`badge ${report.analysis.isComplianceDocument ? 'green' : 'yellow'}`}>{report.analysis.isComplianceDocument ? 'Document de contrôle / construction' : 'Hors contrôle technique'}</span>
+        <span className="confidence">Confiance {pct(report.analysis.confidence)}</span>
+      </div>
+      <h2>Analyse du document</h2>
+      <p style={{ whiteSpace: 'pre-wrap' }}>{report.analysis.summary}</p>
+      {report.analysis.relevance && <div className="detail-block" style={{ marginTop: 8 }}><small>Pertinence pour le suivi de conformité</small><p>{report.analysis.relevance}</p></div>}
+      {report.analysis.keyInformation.length > 0 && <div className="detail-grid">
+        {report.analysis.keyInformation.map((k, i) => <div className="detail-block" key={i}><small>{k.label}</small><p>{k.value}</p></div>)}
+      </div>}
+    </div>}
+
+    {report.analysisStatus === 'PENDING' && <div className="notice">Analyse en attente — la clé d'analyse IA n'est pas configurée. Configurez ANTHROPIC_API_KEY côté serveur puis relancez l'analyse.</div>}
     {report.analysisStatus === 'PROCESSING' && <div className="notice">L'analyse IA de ce rapport est en cours…</div>}
-    {report.analysisStatus === 'FAILED' && <div className="notice error">Échec de l'analyse IA. {friendlyError(report.analysisError) || "Vérifiez la configuration Gemini puis relancez l'analyse."}</div>}
-    {(report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && report.observationCount === 0 && report.detectedObservations === 0 && <div className="notice">Analyse terminée — aucune observation détectée</div>}
+    {report.analysisStatus === 'FAILED' && <div className="notice error">Échec de l'analyse IA. {friendlyError(report.analysisError) || "Vérifiez la configuration de l'analyse IA puis relancez l'analyse."}</div>}
+    {(report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && report.observationCount === 0 && report.detectedObservations === 0 && <div className="notice">{report.analysis ? "Document analysé — il ne contient aucune observation de conformité à suivre." : 'Analyse terminée — aucune observation détectée'}</div>}
     {(report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && report.observationCount === 0 && report.detectedObservations > 0 && <div className="notice">Aucune observation détectée par l'IA.</div>}
 
     {report.detectedObservations > 0 && report.observationCount === 0 && !canMaterialize && <div className="notice" style={{ marginTop: 8 }}>Des observations ont été détectées mais ne sont pas encore en base.</div>}
@@ -112,6 +129,7 @@ export default function ReportDetailPage(){
           <div className="card" key={o.id}>
             <div className="badges">
               <span className={`badge ${SEV_TONE[o.severity] || ''}`}>{severityLabel(o.severity)}</span>
+              {o.category && CATEGORY_LABEL[o.category] ? <span className="badge">{CATEGORY_LABEL[o.category]}</span> : null}
               <span className="badge yellow">{statusLabel(o.status)}</span>
               {o.sourcePage ? <span className="badge">Page {o.sourcePage}</span> : null}
               {typeof o.aiConfidence === 'number' && <span className="confidence">Confiance {Math.round(o.aiConfidence * 100)}%</span>}

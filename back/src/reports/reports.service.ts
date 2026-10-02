@@ -4,23 +4,23 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { REPORT_ANALYSIS_SCHEMA, REPORT_ANALYSIS_SYSTEM, VALID_SEVERITIES, documentAnalysisOf, validateReportAnalysis } from './report-analysis';
 
-const VALID_SEVERITIES = ['INFO', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const AUTO_ACTION_CONFIDENCE = 0.75;
+const SEVERITIES: readonly string[] = VALID_SEVERITIES;
+const PAGE_MARKER = /\[\[PAGE \d+\]\]/g;
 
-type AiObservation = {
-  title?: string;
-  description?: string;
-  reference?: string | null;
-  requiredAction?: string | null;
-  lotName?: string | null;
-  companyName?: string | null;
-  severity?: string;
-  sourcePage?: number | null;
-  confidence?: number | null;
-};
-
-type ReportAiResult = { observations?: AiObservation[] };
+// Same text layout as pdf-parse's default renderer, prefixed with a page marker so the AI can cite real page numbers.
+async function renderPageWithMarker(pageData: any): Promise<string> {
+  const content = await pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
+  let lastY: number | undefined;
+  let text = '';
+  for (const item of content.items) {
+    text += lastY === item.transform[5] || !lastY ? item.str : `\n${item.str}`;
+    lastY = item.transform[5];
+  }
+  return `[[PAGE ${pageData.pageIndex + 1}]]\n${text}`;
+}
 
 @Injectable()
 export class ReportsService {
@@ -66,13 +66,17 @@ export class ReportsService {
       aiModel: report.aiModel,
       aiConfidence: report.aiConfidence,
       observationCount: report.observationCount,
-      rawTextLength: (report.rawText || '').length,
+      rawTextLength: (report.rawText || '').replace(PAGE_MARKER, '').length,
       aiConfigured: this.ai.isConfigured(),
+      aiProvider: this.ai.provider(),
+      configuredModel: this.ai.model(),
+      analysis: documentAnalysisOf(raw),
       detectedObservations: items.length,
       observations: report.observations.map((o, idx) => {
         const rawItem = aligned ? items[idx] || {} : {};
         return {
           ...o,
+          category: typeof rawItem.category === 'string' ? rawItem.category : null,
           suggestedLotName: typeof rawItem.lotName === 'string' ? rawItem.lotName : null,
           suggestedCompanyName: typeof rawItem.companyName === 'string' ? rawItem.companyName : null,
         };
@@ -102,11 +106,20 @@ export class ReportsService {
 
   async analyzeText(projectId: string, text: string, organizationId: string) {
     await this.assertProject(projectId, organizationId);
-    const { data, model } = await this.ai.json<ReportAiResult>(
-      'You analyze French construction Bureau de Contrôle reports. Extract only observations actually present in the text. Return strict JSON with an observations array. Each item must contain: title, description, reference, requiredAction, lotName, companyName, severity, sourcePage, confidence. confidence is a number from 0 to 1. severity must be INFO, LOW, MEDIUM, HIGH or CRITICAL. Never invent a regulation reference, company, lot, page number or required action; use null when absent. Keep the original technical meaning.',
-      text,
+    const [projectLots, companies] = await Promise.all([
+      this.prisma.projectLot.findMany({ where: { projectId }, include: { lot: true } }),
+      this.prisma.company.findMany({ where: { organizationId }, select: { name: true } }),
+    ]);
+    const known = [
+      projectLots.length ? `Known lots for this project: ${projectLots.map(pl => pl.lot.name).join(' | ')}` : null,
+      companies.length ? `Known companies: ${companies.map(c => c.name).join(' | ')}` : null,
+    ].filter(Boolean).join('\n');
+    const { data, model } = await this.ai.json<unknown>(
+      REPORT_ANALYSIS_SYSTEM,
+      `${known ? `${known}\n\n` : ''}<document>\n${text}\n</document>`,
+      REPORT_ANALYSIS_SCHEMA,
     );
-    return { projectId, result: data, model };
+    return { projectId, result: validateReportAnalysis(data), model };
   }
 
   async uploadAndAnalyze(projectId: string, issuer: string | undefined, file: Express.Multer.File, organizationId: string, userId: string) {
@@ -125,8 +138,12 @@ export class ReportsService {
     let parsedText = '';
     let pdfError: string | null = null;
     try {
-      const parsedPdf = await pdf(file.buffer);
+      const parsedPdf = await pdf(file.buffer, { pagerender: renderPageWithMarker });
       parsedText = parsedPdf.text || '';
+      if (!parsedText.replace(PAGE_MARKER, '').trim()) {
+        parsedText = '';
+        pdfError = "Aucun texte exploitable n'a pu être extrait de ce PDF (document scanné ou vide).";
+      }
     } catch (error: any) {
       pdfError = typeof error?.message === 'string' && error.message.trim() ? error.message : 'PDF text extraction failed';
       this.logger.error(`PDF extraction failed for ${full}: ${error?.stack || pdfError}`);
@@ -151,11 +168,11 @@ export class ReportsService {
     });
 
     if (!this.ai.isConfigured()) {
-      this.logger.log(`Report ${report.id} saved (analysis PENDING: GEMINI_API_KEY not configured)`);
+      this.logger.log(`Report ${report.id} saved (analysis PENDING: ANTHROPIC_API_KEY not configured)`);
       return {
         report,
         document,
-        extractedTextLength: parsedText.length,
+        extractedTextLength: parsedText.replace(PAGE_MARKER, '').length,
         aiConfigured: false,
         createdObservations: 0,
         createdDrafts: 0,
@@ -178,7 +195,7 @@ export class ReportsService {
     }
     return this.runAnalysis(report.id, projectId, parsedText, organizationId, userId, {
       documentId: document.id,
-      extractedTextLength: parsedText.length,
+      extractedTextLength: parsedText.replace(PAGE_MARKER, '').length,
     });
   }
 
@@ -186,7 +203,7 @@ export class ReportsService {
     const report = await this.prisma.controlReport.findFirst({ where: { id: reportId, project: { organizationId } } });
     if (!report) throw new NotFoundException('Report not found');
     if (!report.rawText?.trim()) throw new BadRequestException('No extracted text is available for this report');
-    if (!this.ai.isConfigured()) throw new BadRequestException('GEMINI_API_KEY is not configured yet');
+    if (!this.ai.isConfigured()) throw new BadRequestException('ANTHROPIC_API_KEY is not configured yet');
     await this.prisma.generatedEmail.deleteMany({ where: { observation: { reportId } } });
     await this.prisma.observation.deleteMany({ where: { reportId } });
     await this.prisma.controlReport.update({
@@ -266,7 +283,7 @@ export class ReportsService {
       const sourcePage = typeof item.sourcePage === 'number' && Number.isFinite(item.sourcePage) && item.sourcePage > 0
         ? Math.round(item.sourcePage)
         : null;
-      const severity = VALID_SEVERITIES.includes(String(item.severity)) ? String(item.severity) as any : 'MEDIUM';
+      const severity = SEVERITIES.includes(String(item.severity)) ? String(item.severity) as any : 'MEDIUM';
       const safeForAutomation = confidence !== null && confidence >= AUTO_ACTION_CONFIDENCE;
       if (!safeForAutomation) needsValidation++;
 
@@ -349,7 +366,7 @@ export class ReportsService {
     this.logger.log(`Starting AI analysis for report ${reportId}`);
     try {
       const analyzed = await this.analyzeText(projectId, text, organizationId);
-      const items = Array.isArray(analyzed.result?.observations) ? analyzed.result.observations : [];
+      const items = analyzed.result.observations;
       const project = await this.prisma.project.findUnique({
         where: { id: projectId },
         include: {
@@ -411,7 +428,7 @@ export class ReportsService {
         const sourcePage = typeof item.sourcePage === 'number' && Number.isFinite(item.sourcePage) && item.sourcePage > 0
           ? Math.round(item.sourcePage)
           : null;
-        const severity = VALID_SEVERITIES.includes(String(item.severity)) ? String(item.severity) as any : 'MEDIUM';
+        const severity = SEVERITIES.includes(String(item.severity)) ? String(item.severity) as any : 'MEDIUM';
         const safeForAutomation = confidence !== null && confidence >= AUTO_ACTION_CONFIDENCE;
         if (!safeForAutomation) needsValidation++;
 
@@ -471,7 +488,8 @@ export class ReportsService {
         }
       }
 
-      const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null;
+      // Without observations, the report-level confidence is the document analysis confidence.
+      const avgConfidence = confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : analyzed.result.confidence;
       const needsReview = needsValidation > 0 || items.some(x => x.confidence == null);
       const status = needsReview ? 'NEEDS_REVIEW' : 'COMPLETED';
       await this.prisma.controlReport.update({
@@ -501,8 +519,11 @@ export class ReportsService {
         reportId,
         ...extra,
         aiConfigured: true,
+        aiProvider: this.ai.provider(),
         aiModel: analyzed.model,
         aiConfidence: avgConfidence,
+        documentType: analyzed.result.documentType,
+        summary: analyzed.result.summary,
         analysisStatus: status,
         createdObservations: created,
         createdDrafts,

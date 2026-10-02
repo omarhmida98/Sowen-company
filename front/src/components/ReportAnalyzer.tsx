@@ -28,6 +28,9 @@ export function ReportAnalyzer({projectId}:{projectId:string}){
     {msg&&<div className={isErr?'notice error':'notice'}>{msg}</div>}
     {result&&<div className="card">
       <h3>Résultat de l’analyse</h3>
+      {result.documentType&&<div className="kv"><span>Type de document détecté</span><strong>{result.documentType}</strong></div>}
+      {result.summary&&<p className="muted">{result.summary}</p>}
+      {result.analysisStatus==='FAILED'&&result.analysisError&&<div className="notice error">{result.analysisError}</div>}
       <div className="kv"><span>Texte du rapport</span><strong>{result.extractedTextLength||0} caractères</strong></div>
       {pct!==null&&<div className="kv"><span>Pertinence des résultats</span><strong>{pct}%</strong></div>}
       <div className="kv"><span>Observations créées</span><strong>{result.createdObservations||0}</strong></div>

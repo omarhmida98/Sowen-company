@@ -23,7 +23,8 @@ export class SystemController {
     return {
       database,
       databaseError,
-      gemini: Boolean(this.config.get('GEMINI_API_KEY')),
+      ai: Boolean(this.config.get<string>('ANTHROPIC_API_KEY')?.trim()),
+      aiProvider: 'Claude',
       resend: Boolean(this.config.get('RESEND_API_KEY') && this.config.get('RESEND_FROM')),
       storage: Boolean(
         this.config.get('S3_BUCKET') &&

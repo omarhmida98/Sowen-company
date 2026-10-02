@@ -188,7 +188,11 @@ export type ApiObservation = {
   id:string; projectId:string; title?:string|null; description?:string|null; originalText?:string|null; requiredAction?:string|null;
   reference?:string|null; status:string; severity:string; sourcePage?:number|null; dueDate?:string|null; aiConfidence?:number|null; escalationLevel?:number|null; createdAt?:string; updatedAt?:string;
   lot?:{id:string;name:string}|null; company?:{id:string;name:string;email?:string|null}|null; report?:{id:string;issuer?:string|null}|null;
-  suggestedLotName?:string|null; suggestedCompanyName?:string|null;
+  suggestedLotName?:string|null; suggestedCompanyName?:string|null; category?:string|null;
+};
+export type ApiDocumentAnalysis = {
+  documentType:string; isComplianceDocument:boolean; summary:string; relevance:string; confidence:number|null;
+  keyInformation:{label:string;value:string}[];
 };
 export type ApiReportDetail = {
   id:string; projectId:string;
@@ -196,7 +200,7 @@ export type ApiReportDetail = {
   document?:{id:string;name:string;storageKey:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt?:string}|null;
   issuer?:string|null; reportDate?:string|null; createdAt?:string; analyzedAt?:string|null;
   analysisStatus:string; analysisError?:string|null; aiModel?:string|null; aiConfidence?:number|null;
-  observationCount:number; rawTextLength:number; aiConfigured:boolean; detectedObservations:number; observations: ApiObservation[];
+  observationCount:number; rawTextLength:number; aiConfigured:boolean; aiProvider?:string; configuredModel?:string; analysis?:ApiDocumentAnalysis|null; detectedObservations:number; observations: ApiObservation[];
 };
 export type ApiRule = {id:string;domain:string;title:string;summary:string;requirement:string;actionRequest?:string|null;evidenceRequired?:string|null;severity:string;buildingType?:string|null;erpType?:string|null;lot?:{id:string;name:string}|null;source?:{id:string;title:string;reference?:string|null}|null;_count?:{versions:number}};
 export type ApiDocument = {id:string;projectId:string;name:string;type:string;storageKey:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt:string};

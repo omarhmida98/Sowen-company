@@ -83,3 +83,14 @@
 - Real PostgreSQL health check.
 - Integration status no longer assumes the database is healthy.
 - Automation and daily-digest status exposed in settings API.
+
+## 2026-10-02 — Migration de l'analyse IA de Gemini vers Claude
+- Le fournisseur IA actif est désormais Claude (API Anthropic, SDK officiel `@anthropic-ai/sdk`) ; la dépendance `@google/genai` est supprimée.
+- Configuration backend : `ANTHROPIC_API_KEY` et `ANTHROPIC_MODEL` (par défaut `claude-opus-5-5`) remplacent `GEMINI_API_KEY` et `GEMINI_MODEL`. Les mentions de Gemini dans les entrées précédentes de ce journal sont conservées telles quelles.
+- Tout PDF lisible est analysé : type de document, résumé, pertinence, informations clés et confiance, en plus des observations.
+- Réponse en JSON strict (schéma imposé à Claude) validée par le backend avant enregistrement ; une réponse invalide passe le rapport en `FAILED`.
+- Observations catégorisées (observation, non-conformité, réserve, remarque technique, recommandation) ; numéros de page issus de marqueurs de page ajoutés au texte extrait.
+- Les lots du projet et les entreprises de l'organisation sont transmis à l'IA pour fiabiliser le rattachement.
+- Un PDF sans texte exploitable (scanné ou vide) passe en `FAILED` avec un message explicite, sans appel à l'IA.
+- `GET /api/system/status` expose `ai` et `aiProvider` à la place de `gemini`.
+- Page rapport : libellés IA génériques, fournisseur, modèle, analyse du document et catégorie de chaque observation.

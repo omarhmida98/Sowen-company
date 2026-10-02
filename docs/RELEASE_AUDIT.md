@@ -26,6 +26,6 @@ Then start PostgreSQL and perform the smoke test documented in `docs/SMOKE_TEST.
 ## Production notes
 
 - Keep `REMINDER_AUTOMATION_ENABLED=false` and `DAILY_DIGEST_ENABLED=false` until Resend and the production scheduler are configured.
-- Do not enable real AI actions until `GEMINI_API_KEY` is configured and low-confidence observations are reviewed by a human.
+- Do not enable real AI actions until `ANTHROPIC_API_KEY` is configured and low-confidence observations are reviewed by a human.
 - Local JWT storage is acceptable for this development build, but for a hardened internet-facing deployment consider moving refresh-token handling to Secure/HttpOnly cookies.
 - The regulatory knowledge base must remain sourced/versioned and should not treat model output as the legal source of truth.

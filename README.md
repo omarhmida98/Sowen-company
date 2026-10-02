@@ -7,7 +7,7 @@ Application de suivi conformité chantier / Bureau de Contrôle.
 - `back/` — NestJS + Prisma
 - PostgreSQL 16 via Docker
 - Upload local en développement (`back/uploads/`)
-- Gemini optionnel pour l'analyse des rapports PDF
+- Claude (API Anthropic) optionnel pour l'analyse des rapports PDF
 - Resend optionnel pour les emails et relances
 
 ## Fonctionnalités actuellement branchées
@@ -23,7 +23,7 @@ Application de suivi conformité chantier / Bureau de Contrôle.
 - import de documents
 - import d'un rapport PDF Bureau de Contrôle
 - extraction texte PDF
-- analyse Gemini optionnelle et création d'observations depuis le rapport
+- analyse Claude optionnelle et création d'observations depuis le rapport
 - mails : envoi individuel, envoi des brouillons, relances
 - clôture d'une observation
 - journal d'activité backend
@@ -76,14 +76,14 @@ JWT_ACCESS_TTL="15m"
 JWT_REFRESH_TTL="30d"
 ```
 
-Gemini est optionnel au démarrage :
+Claude est optionnel au démarrage :
 
 ```env
-GEMINI_API_KEY=""
-GEMINI_MODEL="gemini-3.6-flash"
+ANTHROPIC_API_KEY=""
+ANTHROPIC_MODEL="claude-opus-5-5"
 ```
 
-Sans clé Gemini, un rapport PDF peut être importé et son texte extrait, mais aucune observation IA n'est créée.
+Sans clé Anthropic, un rapport PDF peut être importé et son texte extrait, mais aucune observation IA n'est créée.
 
 Resend est optionnel au démarrage :
 
@@ -107,10 +107,10 @@ NEXT_PUBLIC_API_URL="http://localhost:4000/api"
 3. Créer les lots nécessaires dans `Lots`.
 4. Créer un projet.
 5. Ajouter les entreprises / règles / observations.
-6. Configurer Gemini et Resend seulement lorsqu'ils sont nécessaires.
+6. Configurer Claude et Resend seulement lorsqu'ils sont nécessaires.
 
 ## Important
-Ne jamais committer `back/.env`, `front/.env.local`, les clés Gemini/Resend ou les mots de passe de production.
+Ne jamais committer `back/.env`, `front/.env.local`, les clés Anthropic/Resend ou les mots de passe de production.
 
 ## Fonctions V2 ajoutées
 SOWEN inclut désormais : mode sombre, interface FR/EN, pré-contrôle enrichi par IA, analyse PDF BC avec confiance IA, preuves avant/après et pièces techniques, score de conformité, scanner d'échéances, relances Resend, portail entreprise par token, historique/audit, règles versionnées, recherche globale, modèles de projet, export CSV/Excel, impression PDF, vue direction et navigation mobile chantier.

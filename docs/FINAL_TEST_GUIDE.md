@@ -19,7 +19,7 @@ powershell -ExecutionPolicy Bypass -File tools/generate-secrets.ps1
 
 Copier les trois valeurs dans `back/.env`.
 
-Gemini, Resend et S3/R2 peuvent rester vides pour le premier démarrage.
+Claude, Resend et S3/R2 peuvent rester vides pour le premier démarrage.
 
 ## 2. Installer et lancer PostgreSQL
 
@@ -86,19 +86,19 @@ Tester :
 5. Créer une observation manuelle.
 6. Ajouter un document / une preuve.
 7. Créer une règle.
-8. Tester le pré-contrôle sans clé Gemini : le système doit rester utilisable et signaler que l'IA est inactive.
-9. Importer un PDF Bureau de Contrôle sans clé Gemini : l'import doit fonctionner, l'analyse IA doit être explicitement indisponible.
+8. Tester le pré-contrôle sans clé Anthropic : le système doit rester utilisable et signaler que l'IA est inactive.
+9. Importer un PDF Bureau de Contrôle sans clé Anthropic : l'import doit fonctionner, l'analyse IA doit être explicitement indisponible.
 10. Vérifier FR / EN, clair / sombre et l'affichage mobile.
 11. Vérifier le centre de notifications et le journal d'activité.
 12. Vérifier l'export CSV/Excel et l'impression PDF.
 
-## 7. Activer Gemini plus tard
+## 7. Activer Claude plus tard
 
 Dans `back/.env` :
 
 ```env
-GEMINI_API_KEY="..."
-GEMINI_MODEL="gemini-3.6-flash"
+ANTHROPIC_API_KEY="..."
+ANTHROPIC_MODEL="claude-opus-5-5"
 ```
 
 Redémarrer le backend après modification.

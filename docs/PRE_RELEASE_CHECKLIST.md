@@ -23,7 +23,7 @@
 - [ ] associer lots et entreprises
 - [ ] créer une observation manuelle
 - [ ] importer un rapport PDF
-- [ ] pré-contrôle IA avec et sans clé Gemini
+- [ ] pré-contrôle IA avec et sans clé Anthropic
 - [ ] vérifier seuil de confiance IA / « À valider »
 - [ ] générer un brouillon
 - [ ] envoyer via Resend (si configuré)

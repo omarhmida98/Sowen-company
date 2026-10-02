@@ -13,7 +13,7 @@ SOWEN V2 — DEMARRAGE
 DATABASE_URL locale par défaut :
 postgresql://sowen:sowen_dev_password@localhost:5432/sowen?schema=public
 
-GEMINI_API_KEY et RESEND_API_KEY peuvent rester vides au début.
+ANTHROPIC_API_KEY et RESEND_API_KEY peuvent rester vides au début.
 
 Après chaque modification du schema Prisma :
 npm run db:migrate

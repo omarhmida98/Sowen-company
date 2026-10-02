@@ -13,8 +13,8 @@
 - `JWT_REFRESH_SECRET` : deuxième secret distinct.
 
 ### Optionnel
-- `GEMINI_API_KEY` : nécessaire uniquement pour analyser automatiquement le contenu des rapports BC.
-- `GEMINI_MODEL` : modèle utilisé par le module rapports.
+- `ANTHROPIC_API_KEY` : nécessaire uniquement pour analyser automatiquement le contenu des PDF importés (Claude).
+- `ANTHROPIC_MODEL` : modèle Claude utilisé par l'analyse IA, par défaut `claude-opus-5-5`.
 - `RESEND_API_KEY` + `RESEND_FROM` : nécessaires uniquement pour envoyer les emails et relances.
 - variables `S3_*` : réservées au stockage objet de production.
 
@@ -30,11 +30,12 @@ Aucune clé privée ne doit être mise dans le frontend.
 
 ## Fonctionnalités avancées
 ### Analyse IA / pré-contrôle IA
-Créer une clé API Gemini (Google AI Studio) et renseigner uniquement le backend :
+Créer une clé API Anthropic (console Claude) et renseigner uniquement le backend :
 ```env
-GEMINI_API_KEY="..."
-GEMINI_MODEL="gemini-3.6-flash"
+ANTHROPIC_API_KEY="..."
+ANTHROPIC_MODEL="claude-opus-5-5"
 ```
+La clé n'est jamais transmise au frontend ni écrite dans les logs.
 Sans clé, le pré-contrôle réglementaire reste utilisable avec le moteur de règles PostgreSQL, mais l'extraction IA des risques/documents n'est pas exécutée.
 
 ### Emails et relances automatiques

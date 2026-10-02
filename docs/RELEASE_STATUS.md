@@ -8,7 +8,7 @@
 - Auth JWT et rôles
 - Isolation par organisation
 - Projets, lots, entreprises, observations, règles, documents et rapports
-- Pré-contrôle et intégration Gemini optionnelle
+- Pré-contrôle et intégration Claude optionnelle
 - Analyse PDF BC avec score de confiance
 - Preuves / réponses entreprise
 - Workflow de validation, relance, clôture et réouverture
@@ -24,7 +24,7 @@
 ## Non activé par défaut
 
 - Envoi réel Resend
-- Analyse Gemini
+- Analyse Claude
 - Stockage S3/R2
 - Relances automatiques
 - Digest quotidien
