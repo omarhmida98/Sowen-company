@@ -15,7 +15,10 @@
 ### Optionnel
 - `ANTHROPIC_API_KEY` : nécessaire uniquement pour analyser automatiquement le contenu des PDF importés (Claude).
 - `ANTHROPIC_MODEL` : modèle Claude utilisé par l'analyse IA, par défaut `claude-opus-5-5`.
-- `RESEND_API_KEY` + `RESEND_FROM` : nécessaires uniquement pour envoyer les emails et relances.
+- `EMAIL_PROVIDER` : `gmail` ou `resend` (Resend si la variable est vide). Nécessaire uniquement pour envoyer les emails et relances.
+- `GMAIL_USER` + `GMAIL_APP_PASSWORD` : compte Gmail expéditeur et mot de passe d'application, lorsque `EMAIL_PROVIDER="gmail"`.
+- `RESEND_API_KEY` + `RESEND_FROM` : lorsque le fournisseur est Resend.
+- `SENT_REMINDER_AFTER_DAYS` : nombre de jours sans réponse de l'entreprise après lesquels une observation « Envoyé » est relancée par le scan (3 par défaut, `0` pour désactiver).
 - variables `S3_*` : réservées au stockage objet de production.
 
 Les secrets JWT ne sont pas récupérés auprès d'un fournisseur : ils doivent être générés par l'administrateur.
@@ -40,6 +43,15 @@ Sans clé, le pré-contrôle réglementaire reste utilisable avec le moteur de r
 
 ### Emails et relances automatiques
 ```env
+EMAIL_PROVIDER="gmail"
+GMAIL_USER="adresse@gmail.com"
+GMAIL_APP_PASSWORD="mot de passe d'application à 16 caractères"
+```
+L'envoi passe par SMTP Gmail en TLS (smtp.gmail.com:465). Le mot de passe d'application se crée dans le compte Google (validation en deux étapes requise) ; ce n'est pas le mot de passe du compte. L'expéditeur affiché est toujours l'adresse `GMAIL_USER`.
+
+Avec Resend à la place :
+```env
+EMAIL_PROVIDER="resend"
 RESEND_API_KEY="..."
 RESEND_FROM="SOWEN <suivi@votre-domaine.fr>"
 ```

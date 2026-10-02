@@ -1,13 +1,13 @@
 import {Injectable,Logger} from '@nestjs/common';
 import {ConfigService} from '@nestjs/config';
 import {Cron} from '@nestjs/schedule';
-import {Resend} from 'resend';
+import {MailerService} from '../mailer/mailer.service';
 import {PrismaService} from '../prisma/prisma.service';
 
 @Injectable()
 export class NotificationsService{
   private readonly logger=new Logger(NotificationsService.name);
-  constructor(private p:PrismaService,private config:ConfigService){}
+  constructor(private p:PrismaService,private config:ConfigService,private mailer:MailerService){}
 
   private async upsertForUsers(organizationId:string,dedupeBase:string,data:{kind:any;priority:any;title:string;message:string;href?:string}){
     const users=await this.p.user.findMany({where:{organizationId},select:{id:true}});
@@ -53,9 +53,7 @@ export class NotificationsService{
   markAllRead(userId:string){return this.p.notification.updateMany({where:{userId,readAt:null},data:{readAt:new Date()}})}
 
   async sendDigestForOrganization(organizationId:string){
-    const key=this.config.get<string>('RESEND_API_KEY'),from=this.config.get<string>('RESEND_FROM');
-    if(!key||!from)return {sent:0,configured:false};
-    const resend=new Resend(key);
+    if(!this.mailer.isConfigured())return {sent:0,configured:false};
     await this.sync(organizationId);
     const users=await this.p.user.findMany({where:{organizationId,role:{in:['ADMIN','EDITOR']}},select:{id:true,email:true,displayName:true}});
     let sent=0;
@@ -63,7 +61,7 @@ export class NotificationsService{
       const rows=await this.p.notification.findMany({where:{userId:u.id,readAt:null},orderBy:{createdAt:'desc'},take:20});
       if(!rows.length)continue;
       const items=rows.map(n=>`<li><strong>${n.title}</strong><br/>${n.message}</li>`).join('');
-      await resend.emails.send({from,to:u.email,subject:`SOWEN · ${rows.length} point(s) à traiter`,html:`Bonjour ${u.displayName||''},<br/><br/>Voici votre synthèse SOWEN :<ul>${items}</ul><br/>Connectez-vous à SOWEN pour traiter ces points.`});
+      try{await this.mailer.send({to:u.email,subject:`SOWEN · ${rows.length} point(s) à traiter`,html:`Bonjour ${u.displayName||''},<br/><br/>Voici votre synthèse SOWEN :<ul>${items}</ul><br/>Connectez-vous à SOWEN pour traiter ces points.`})}catch(error:any){this.logger.error(`Digest for user ${u.id} could not be sent: ${error?.message}`);continue}
       sent++;
     }
     return {sent,configured:true};

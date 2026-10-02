@@ -1,12 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailerService } from '../mailer/mailer.service';
 
 @Controller('system')
 export class SystemController {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly mailer: MailerService,
   ) {}
 
   @Get('status')
@@ -25,7 +27,9 @@ export class SystemController {
       databaseError,
       ai: Boolean(this.config.get<string>('ANTHROPIC_API_KEY')?.trim()),
       aiProvider: 'Claude',
-      resend: Boolean(this.config.get('RESEND_API_KEY') && this.config.get('RESEND_FROM')),
+      email: this.mailer.isConfigured(),
+      emailProvider: this.mailer.provider(),
+      emailSender: this.mailer.sender(),
       storage: Boolean(
         this.config.get('S3_BUCKET') &&
         this.config.get('S3_ACCESS_KEY_ID') &&

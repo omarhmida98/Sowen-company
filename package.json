@@ -15,6 +15,7 @@
     "db:seed": "npm --workspace back run prisma:seed",
     "check": "npm --workspace back run typecheck && npm --workspace front run typecheck",
     "preflight": "node tools/preflight.mjs",
-    "release:check": "npm run preflight && npm run check && npm run build"
+    "release:check": "npm run preflight && npm run check && npm run build",
+    "test": "npm --workspace back test"
   }
 }

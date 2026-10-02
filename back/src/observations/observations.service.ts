@@ -40,7 +40,7 @@ export class ObservationsService {
         report: true,
         history: { orderBy: { createdAt: 'desc' } },
         assignments: { include: { user: { select: { id: true, displayName: true, email: true, role: true } } } },
-        generatedEmails: true,
+        generatedEmails: { orderBy: { createdAt: 'desc' } },
         evidence: { include: { document: true }, orderBy: { createdAt: 'desc' } },
       },
     });

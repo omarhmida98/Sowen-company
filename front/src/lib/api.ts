@@ -204,6 +204,16 @@ export type ApiReportDetail = {
 };
 export type ApiRule = {id:string;domain:string;title:string;summary:string;requirement:string;actionRequest?:string|null;evidenceRequired?:string|null;severity:string;buildingType?:string|null;erpType?:string|null;lot?:{id:string;name:string}|null;source?:{id:string;title:string;reference?:string|null}|null;_count?:{versions:number}};
 export type ApiDocument = {id:string;projectId:string;name:string;type:string;storageKey:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt:string};
-export type ApiEmail = {id:string;projectId:string;recipientEmail?:string|null;subject:string;body:string;status:string;createdAt:string;reminderCount?:number;lastRemindedAt?:string|null;observation?:ApiObservation|null};
+export type ApiSendContext = {
+  observation:{id:string;title:string;description:string;reference?:string|null;requiredAction?:string|null;severity:string;status:string;sourcePage?:number|null;dueDate?:string|null;companyId?:string|null;
+    project:{id:string;name:string};lot?:{id:string;name:string}|null;report?:{id:string;name?:string|null;issuer?:string|null}|null};
+  companies:{id:string;name:string;email?:string|null;contactName?:string|null}[];
+  selectedCompanyId:string|null;
+  draft:{subject:string;body:string};
+  savedDraft:{id:string;subject:string;body:string;recipientEmail?:string|null;status:string;userEdited:boolean}|null;
+  lastSent:{id:string;recipientEmail?:string|null;sentAt?:string|null;companyName?:string|null}|null;
+  emailConfigured:boolean;
+};
+export type ApiEmail ={id:string;projectId:string;recipientEmail?:string|null;subject:string;body:string;status:string;createdAt:string;reminderCount?:number;lastRemindedAt?:string|null;observation?:ApiObservation|null};
 export type ApiCompany = {id:string;organizationId:string;name:string;email?:string|null;phone?:string|null;contactName?:string|null;_count?:{projectLots:number;observations:number}};
 export type ApiLot = {id:string;name:string;code?:string|null};

@@ -66,5 +66,32 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .report-row{cursor:pointer;transition:border-color .15s,box-shadow .15s}
 .report-row:hover{border-color:#b9c6d8;box-shadow:0 6px 18px rgba(15,30,60,.08)}
 html[data-theme="dark"] .report-row:hover{border-color:#3d5573;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+/* Send-observation modal */
+.notice.warning{background:#fff7e6;color:#8a5a00;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
+.notice .text-link{font-size:inherit}
+.send-modal .notice{margin-bottom:14px}
+.send-summary{border:1px solid #e3e9f1;border-radius:11px;padding:14px;margin-bottom:14px;display:flex;flex-direction:column;gap:8px}
+.send-summary>strong{font-size:14px}
+.send-summary>p{margin:0;font-size:13px;color:#516079;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.send-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:4px}
+.send-facts small{display:block;font-size:11px;font-weight:750;color:#7a889d;margin-bottom:2px}
+.send-facts span{font-size:13px;font-weight:650;overflow-wrap:anywhere}
+.send-modal textarea{min-height:220px;resize:vertical;line-height:1.5}
+.send-modal textarea,.send-modal input{font-weight:500}
+html[data-theme="dark"] .modal{--card-bg:#101b2b}
+.send-modal .btn svg{margin-right:6px;vertical-align:-2px}
+.send-hint{font-size:12px;margin:-6px 0 14px}
+.send-success{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:18px 6px 4px;color:#26774d}
+.send-success h3{margin:4px 0 0;color:inherit}
+.send-success p{margin:0;color:#2a3850;font-size:13px}
+.send-success .wizard-actions{align-self:stretch}
+.company-edit{margin-top:10px}
+.company-edit svg{margin-right:5px;vertical-align:-2px}
+html[data-theme="dark"] .notice.warning{background:#2b2110;color:#f0c674}
+html[data-theme="dark"] .send-summary{border-color:#24344a}
+html[data-theme="dark"] .send-summary>p{color:#a9b7ca}
+html[data-theme="dark"] .send-success p{color:#cdd8e6}
+html[data-theme="dark"] .send-success{color:#6fd09a}
+@media(max-width:700px){.send-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.send-modal .wizard-actions{flex-wrap:wrap}.send-modal .wizard-actions .btn{flex:1 1 auto;justify-content:center}}
 /* English is applied to the DOM after hydration; keep the French markup unpainted until then so no wrong-language text flashes. */
 html[data-lang="en"]:not([data-i18n-ready]) body>*{visibility:hidden}

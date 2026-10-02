@@ -6,9 +6,9 @@ import Link from 'next/link';
 import {AlertTriangle, CheckCircle2, FileText, Mail, RotateCcw, Send, ShieldAlert} from 'lucide-react';
 import {api} from '@/lib/api';
 
-type Props={id:string;projectId:string;status:string;emailId?:string|null};
+type Props={id:string;projectId:string;status:string;emailId?:string|null;onChanged?:()=>void};
 
-export function ObservationActions({id,projectId,status,emailId}:Props){
+export function ObservationActions({id,projectId,status,emailId,onChanged}:Props){
   const router=useRouter();
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState('');
@@ -18,7 +18,7 @@ export function ObservationActions({id,projectId,status,emailId}:Props){
     setBusy(true);setMsg('');setIsErr(false);
     try{
       await api(`/observations/${id}/status`,{method:'POST',body:JSON.stringify({status:next,note})});
-      router.refresh();
+      router.refresh();onChanged?.();
       setMsg('Statut mis à jour.');setIsErr(false);
     }catch(e:any){setMsg(e.message);setIsErr(true)}finally{setBusy(false)}
   }
@@ -28,7 +28,7 @@ export function ObservationActions({id,projectId,status,emailId}:Props){
     setBusy(true);setMsg('');setIsErr(false);
     try{
       await api(`/emails/${emailId}/remind`,{method:'POST'});
-      router.refresh();
+      router.refresh();onChanged?.();
       setMsg('Relance envoyée.');setIsErr(false);
     }catch(e:any){setMsg(e.message);setIsErr(true)}finally{setBusy(false)}
   }
