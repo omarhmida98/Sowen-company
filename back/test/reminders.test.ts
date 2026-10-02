@@ -11,7 +11,7 @@ const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86400000);
 const daysAhead = (n: number) => new Date(NOW.getTime() + n * 86400000);
 const settings = { reminderDays: 7, sentReminderDays: 3 };
 const sentEmail = (sentDaysAgo: number, extra: Record<string, unknown> = {}) => ({ id: `mail-${sentDaysAgo}`, status: 'SENT', recipientEmail: 'entreprise@example.com', subject: 'Observation', body: 'Texte', sentAt: daysAgo(sentDaysAgo), lastRemindedAt: null, reminderCount: 0, ...extra });
-const observation = (extra: Record<string, unknown> = {}) => ({ id: 'obs-1', projectId: 'project-1', status: 'SENT', dueDate: null, updatedAt: daysAgo(0), escalationLevel: 0, company: { name: 'ELEC' }, generatedEmails: [sentEmail(4)], ...extra });
+const observation = (extra: Record<string, unknown> = {}) => ({ id: 'obs-1', projectId: 'project-1', status: 'SENT', dueDate: null, updatedAt: daysAgo(0), escalationLevel: 0, title: 'Observation', reference: null, companyId: 'company-1', project: { name: 'Projet', organization: { name: 'Org' } }, company: { name: 'ELEC' }, generatedEmails: [sentEmail(4)], ...extra });
 
 // ---------- configuration ----------
 
@@ -82,7 +82,7 @@ function harness(rows: any[], env: Record<string, string> = {}, mailerConfigured
     generatedEmail: { update: async ({ where, data }: any) => { const mail = rows.flatMap(r => r.generatedEmails).find((m: any) => m.id === where.id); mail.lastRemindedAt = data.lastRemindedAt; mail.reminderCount += 1; } },
   };
   const config: any = { get: (key: string) => env[key] };
-  const mailer: any = { isConfigured: () => mailerConfigured, send: async (mail: any) => { sentMails.push(mail); return { id: 'fake' }; } };
+  const mailer: any = { isConfigured: () => mailerConfigured, publicAppUrl: () => null, send: async (mail: any) => { sentMails.push(mail); return { id: 'fake' }; } };
   return { service: new RemindersService(prisma, config, mailer), sentMails, history, activity };
 }
 
@@ -97,7 +97,7 @@ test('scan: a stale Envoyé observation is flagged "À relancer" and reminded on
   assert.notEqual(row.status, 'WAITING');
   assert.equal(sentMails.length, 1, 'only the email that was sent is reminded, not the unsent draft');
   assert.equal(sentMails[0].to, 'entreprise@example.com');
-  assert.match(sentMails[0].subject, /Observation/);
+  assert.equal(sentMails[0].subject, 'Relance - Observation', 'a reminder never reuses the original subject unchanged');
   assert.equal(history[0].fromStatus, 'SENT');
   assert.equal(history[0].toStatus, 'TO_RELAUNCH');
   assert.match(history[0].note, /Aucune réponse de l’entreprise 3 jour/);
@@ -150,6 +150,7 @@ test('scan: overdue escalation and the 24-hour reminder cooldown still work', as
   assert.equal(overdue.escalationLevel, 3, '15 days overdue with 7-day steps is capped at level 3');
   assert.equal(result.escalated, 2);
   assert.equal(sentMails.length, 1, 'the email reminded an hour ago is skipped');
-  assert.match(sentMails[0].subject, /^URGENT - /);
+  assert.match(sentMails[0].subject, /^Relance urgente - /);
+  assert.equal(sentMails[0].automated, true, 'scan reminders are marked as automated mail');
   assert.ok(activity.some(a => a.action === 'Escalade niveau 3'));
 });

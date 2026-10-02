@@ -4,7 +4,11 @@ import nodemailer, { Transporter } from 'nodemailer';
 import { Resend } from 'resend';
 
 export type MailProvider = 'gmail' | 'resend';
-export type OutgoingMail = { to: string; subject: string; html: string };
+// `automated` marks mail sent by a scheduled job rather than by a person clicking Send.
+export type OutgoingMail = { to: string; subject: string; html: string; text?: string; automated?: boolean };
+
+// RFC 3834: tells mail servers the message was machine-generated, so they do not answer it with auto-replies.
+const AUTOMATED_HEADERS = { 'Auto-Submitted': 'auto-generated' };
 
 // A provider refusal. `message` is the raw technical reason (stored for diagnosis),
 // `userMessage` is safe to show: it never contains credentials or the provider payload.
@@ -33,6 +37,13 @@ export class MailerService {
     return this.provider() === 'gmail'
       ? Boolean(this.value('GMAIL_USER') && this.value('GMAIL_APP_PASSWORD'))
       : Boolean(this.value('RESEND_API_KEY') && this.value('RESEND_FROM'));
+  }
+
+  // Public address of the web app, used for links inside emails. Null unless PUBLIC_APP_URL is a valid http(s) URL.
+  publicAppUrl(): string | null {
+    const raw = this.value('PUBLIC_APP_URL');
+    if (!raw) return null;
+    try { const url = new URL(raw); return url.protocol === 'https:' || url.protocol === 'http:' ? `${url.origin}${url.pathname.replace(/\/+$/, '')}` : null; } catch { return null; }
   }
 
   // Address shown to recipients, without any secret.
@@ -64,7 +75,7 @@ export class MailerService {
 
   private async sendWithGmail(mail: OutgoingMail) {
     try {
-      const info = await this.gmailTransport().sendMail({ from: this.sender()!, to: mail.to, subject: mail.subject, html: mail.html });
+      const info = await this.gmailTransport().sendMail({ from: this.sender()!, to: mail.to, subject: mail.subject, html: mail.html, text: mail.text, headers: mail.automated ? AUTOMATED_HEADERS : undefined });
       if (!info.accepted?.length) throw Object.assign(new Error(`Recipient refused: ${String(info.response || '')}`), { code: 'EENVELOPE' });
       return { id: info.messageId };
     } catch (e: any) {
@@ -75,7 +86,7 @@ export class MailerService {
   private async sendWithResend(mail: OutgoingMail) {
     let sent;
     try {
-      sent = await new Resend(this.value('RESEND_API_KEY')).emails.send({ from: this.value('RESEND_FROM'), ...mail });
+      sent = await new Resend(this.value('RESEND_API_KEY')).emails.send({ from: this.value('RESEND_FROM'), to: mail.to, subject: mail.subject, html: mail.html, text: mail.text, headers: mail.automated ? AUTOMATED_HEADERS : undefined });
     } catch (e: any) {
       throw new MailSendError(this.technicalReason(e), null);
     }

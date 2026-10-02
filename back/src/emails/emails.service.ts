@@ -2,6 +2,8 @@ import { BadGatewayException, BadRequestException, ConflictException, ForbiddenE
 import { EmailStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailSendError, MailerService } from '../mailer/mailer.service';
+import { renderObservationEmail } from '../mailer/email-template';
+import { companyPortalCta } from '../mailer/portal-link';
 import { ObservationEmailDto, SendObservationEmailDto } from './emails.dto';
 
 const UNSENT: EmailStatus[] = ['DRAFT', 'NEEDS_RECIPIENT', 'ERROR'];
@@ -20,6 +22,23 @@ export class EmailsService {
   private assertConfigured() {
     if (!this.mailer.isConfigured()) throw new BadRequestException('L’envoi d’emails n’est pas configuré.');
   }
+  // HTML + plain-text version of a stored email. The stored body stays the plain text the user edited.
+  private async render(email: { projectId: string; observationId: string | null; body: string }, subject: string, reminder?: { level: number }) {
+    const [project, observation] = await Promise.all([
+      this.prisma.project.findUnique({ where: { id: email.projectId }, select: { name: true, organization: { select: { name: true } } } }),
+      email.observationId ? this.prisma.observation.findUnique({ where: { id: email.observationId }, select: { title: true, reference: true, companyId: true } }) : null,
+    ]);
+    return renderObservationEmail({
+      subject,
+      body: email.body,
+      projectName: project?.name,
+      observationTitle: observation?.title,
+      reference: observation?.reference,
+      organizationName: project?.organization.name,
+      cta: await companyPortalCta(this.prisma, this.mailer, email.projectId, observation?.companyId),
+      reminder,
+    });
+  }
   private async ownedEmail(id: string, organizationId: string) {
     const email = await this.prisma.generatedEmail.findUnique({ where: { id }, include: { project: { select: { organizationId: true } } } });
     if (!email) throw new NotFoundException('Email not found');
@@ -36,7 +55,7 @@ export class EmailsService {
     // Only the provider call can put the email back in error: once the provider has accepted it, it must never look unsent.
     let providerMessageId: string | undefined;
     try {
-      providerMessageId = (await this.mailer.send({ to: email.recipientEmail, subject: email.subject, html: email.body.replace(/\n/g, '<br/>') })).id;
+      providerMessageId = (await this.mailer.send({ to: email.recipientEmail, subject: email.subject, ...(await this.render(email, email.subject)) })).id;
     } catch (e: any) {
       const reason = typeof e?.message === 'string' && e.message.trim() ? e.message : 'Unknown email error';
       this.logger.error(`Email ${id} could not be sent: ${reason}`);
@@ -69,7 +88,7 @@ export class EmailsService {
     this.assertConfigured();
     const subject = email.subject.startsWith('Relance') ? email.subject : `Relance - ${email.subject}`;
     try {
-      await this.mailer.send({ to: email.recipientEmail, subject, html: `Bonjour,<br/><br/>Nous vous relançons concernant le point ci-dessous :<br/><br/>${email.body.replace(/\n/g,'<br/>')}<br/><br/>Merci pour votre retour.` });
+      await this.mailer.send({ to: email.recipientEmail, subject, ...(await this.render(email, subject, { level: 0 })) });
     } catch (e: any) {
       this.logger.error(`Reminder for email ${id} could not be sent: ${e?.message}`);
       throw new BadGatewayException(`${(e instanceof MailSendError && e.userMessage) || 'L’envoi de la relance a échoué.'} Merci de réessayer.`);

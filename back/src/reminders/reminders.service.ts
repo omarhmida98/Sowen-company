@@ -4,6 +4,8 @@ import {Cron,CronExpression} from '@nestjs/schedule';
 import {MailerService} from '../mailer/mailer.service';
 import {PrismaService} from '../prisma/prisma.service';
 import {reminderReason,sentReminderDays,wasSent} from './reminder-rules';
+import {renderObservationEmail} from '../mailer/email-template';
+import {companyPortalCta} from '../mailer/portal-link';
 
 @Injectable()
 export class RemindersService{
@@ -53,7 +55,7 @@ export class RemindersService{
     const sentThreshold=new Date(now.getTime()-sentDays*86400000);
     const candidates=await this.p.observation.findMany({
       where:{project:{organizationId},status:{not:'RESOLVED'},OR:[{dueDate:{lt:now}},{status:'WAITING',updatedAt:{lt:threshold}},...(sentDays>0?[{status:'SENT' as const,generatedEmails:{some:{sentAt:{lt:sentThreshold}}}}]:[])]},
-      include:{generatedEmails:true,project:true,company:true}
+      include:{generatedEmails:true,project:{include:{organization:{select:{name:true}}}},company:true}
     });
     // The query is a superset; reminderReason() is the single place that decides.
     const obs=candidates.map(o=>({o,reason:reminderReason(o,now,{reminderDays,sentReminderDays:sentDays})})).filter(x=>x.reason);
@@ -82,8 +84,10 @@ export class RemindersService{
           const cooldown=!email.lastRemindedAt||now.getTime()-email.lastRemindedAt.getTime()>24*3600*1000;
           if(!cooldown)continue;
           const level=Math.max(desiredEscalation,o.escalationLevel);
-          const prefix=level>=2?'URGENT - ':level===1?'Relance - ':'';
-          try{await this.mailer.send({to:email.recipientEmail!,subject:`${prefix}${email.subject}`,html:`Bonjour,<br/><br/>Une action est toujours attendue pour le point suivant :<br/><br/>${email.body.replace(/\n/g,'<br/>')}${level?`<br/><br/><strong>Niveau d'escalade : ${level}</strong>`:''}`})}
+          // Every reminder is labelled as one; no all-caps wording, which reads as spam.
+          const prefix=level>=2?'Relance urgente - ':email.subject.startsWith('Relance')?'':'Relance - ';
+          const subject=`${prefix}${email.subject}`;
+          try{await this.mailer.send({to:email.recipientEmail!,subject,automated:true,...renderObservationEmail({subject,body:email.body,projectName:o.project.name,observationTitle:o.title,reference:o.reference,organizationName:o.project.organization?.name,cta:await companyPortalCta(this.p,this.mailer,o.projectId,o.companyId),reminder:{level}})})}
           catch(error:any){this.logger.error(`Reminder for email ${email.id} could not be sent: ${error?.message}`);continue}
           await this.p.generatedEmail.update({where:{id:email.id},data:{lastRemindedAt:now,reminderCount:{increment:1}}});
           await this.p.activityLog.create({data:{projectId:o.projectId,userId:userId||null,action:level?'Relance escaladée envoyée':'Relance automatique envoyée',entityType:'GeneratedEmail',entityId:email.id,metadata:{level}}});

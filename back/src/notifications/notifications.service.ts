@@ -2,6 +2,7 @@ import {Injectable,Logger} from '@nestjs/common';
 import {ConfigService} from '@nestjs/config';
 import {Cron} from '@nestjs/schedule';
 import {MailerService} from '../mailer/mailer.service';
+import {renderDigestEmail} from '../mailer/email-template';
 import {PrismaService} from '../prisma/prisma.service';
 
 @Injectable()
@@ -60,8 +61,8 @@ export class NotificationsService{
     for(const u of users){
       const rows=await this.p.notification.findMany({where:{userId:u.id,readAt:null},orderBy:{createdAt:'desc'},take:20});
       if(!rows.length)continue;
-      const items=rows.map(n=>`<li><strong>${n.title}</strong><br/>${n.message}</li>`).join('');
-      try{await this.mailer.send({to:u.email,subject:`SOWEN · ${rows.length} point(s) à traiter`,html:`Bonjour ${u.displayName||''},<br/><br/>Voici votre synthèse SOWEN :<ul>${items}</ul><br/>Connectez-vous à SOWEN pour traiter ces points.`})}catch(error:any){this.logger.error(`Digest for user ${u.id} could not be sent: ${error?.message}`);continue}
+      const subject=`SOWEN · ${rows.length} point(s) à traiter`;const appUrl=this.mailer.publicAppUrl();
+      try{await this.mailer.send({to:u.email,subject,automated:true,...renderDigestEmail({subject,recipientName:u.displayName,items:rows.map(n=>({title:n.title,message:n.message})),cta:appUrl?{label:'Ouvrir SOWEN',url:appUrl}:null})})}catch(error:any){this.logger.error(`Digest for user ${u.id} could not be sent: ${error?.message}`);continue}
       sent++;
     }
     return {sent,configured:true};
