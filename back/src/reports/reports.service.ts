@@ -1,8 +1,10 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, StreamableFile } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, StreamableFile } from '@nestjs/common';
 import pdf from 'pdf-parse';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { StorageService } from '../storage/storage.service';
+import { PROTECTION_LABEL, findingKey, protectionReasons } from '../observations/observation-rules';
+import { describeFailure } from './report-failure';
 import { REPORT_ANALYSIS_SCHEMA, REPORT_ANALYSIS_SYSTEM, VALID_SEVERITIES, documentAnalysisOf, validateReportAnalysis } from './report-analysis';
 
 const AUTO_ACTION_CONFIDENCE = 0.75;
@@ -27,12 +29,14 @@ export class ReportsService {
 
   constructor(private prisma: PrismaService, private ai: AiService, private storage: StorageService) {}
 
-  list(organizationId: string, projectId?: string) {
-    return this.prisma.controlReport.findMany({
+  async list(organizationId: string, projectId?: string) {
+    const reports = await this.prisma.controlReport.findMany({
       where: { ...(projectId ? { projectId } : {}), project: { organizationId } },
       include: { project: true, document: true, _count: { select: { observations: true } } },
       orderBy: { createdAt: 'desc' },
     });
+    const aiConfigured = this.ai.isConfigured();
+    return reports.map(r => ({ ...r, failure: r.analysisStatus === 'FAILED' ? describeFailure(r.analysisError, Boolean(r.rawText?.trim()), aiConfigured) : null }));
   }
 
   async detail(reportId: string, organizationId: string) {
@@ -50,7 +54,8 @@ export class ReportsService {
     if (!report) throw new NotFoundException('Report not found');
     const raw: any = report.rawAiResult || null;
     const items = raw && Array.isArray(raw.observations) ? raw.observations : [];
-    const aligned = report.observations.length === items.length;
+    const byKey = new Map<string, any>(items.map((item: any) => [findingKey(item?.title), item]));
+    const sameCount = report.observations.length === items.length;
     return {
       id: report.id,
       projectId: report.projectId,
@@ -62,6 +67,7 @@ export class ReportsService {
       analyzedAt: report.analyzedAt,
       analysisStatus: report.analysisStatus,
       analysisError: report.analysisError,
+      failure: report.analysisStatus === 'FAILED' ? describeFailure(report.analysisError, Boolean(report.rawText?.trim()), this.ai.isConfigured()) : null,
       aiModel: report.aiModel,
       aiConfidence: report.aiConfidence,
       observationCount: report.observationCount,
@@ -72,7 +78,7 @@ export class ReportsService {
       analysis: documentAnalysisOf(raw),
       detectedObservations: items.length,
       observations: report.observations.map((o, idx) => {
-        const rawItem = aligned ? items[idx] || {} : {};
+        const rawItem = byKey.get(findingKey(o.title)) || (sameCount ? items[idx] : null) || {};
         return {
           ...o,
           category: typeof rawItem.category === 'string' ? rawItem.category : null,
@@ -195,18 +201,46 @@ export class ReportsService {
     });
   }
 
-  async reanalyze(reportId: string, organizationId: string, userId: string) {
+  // What a new analysis would do to the observations already attached to the report. Nothing is changed.
+  async reanalysisPlan(reportId: string, organizationId: string) {
+    const report = await this.prisma.controlReport.findFirst({ where: { id: reportId, project: { organizationId } }, select: { id: true } });
+    if (!report) throw new NotFoundException('Report not found');
+    const observations = await this.prisma.observation.findMany({
+      where: { reportId },
+      select: { id: true, title: true, status: true, editedAt: true, reviewStatus: true, generatedEmails: { select: { id: true, status: true, sentAt: true, reminderCount: true } }, _count: { select: { evidence: true, history: true, assignments: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    // A draft somebody rewrote and saved is a manual edit too.
+    const emailIds = observations.flatMap(o => o.generatedEmails.map(e => e.id));
+    const savedDrafts = emailIds.length ? await this.prisma.activityLog.findMany({ where: { entityType: 'GeneratedEmail', entityId: { in: emailIds }, action: { startsWith: 'Brouillon de mail enregistré' } }, select: { entityId: true } }) : [];
+    const edited = new Set(savedDrafts.map(a => a.entityId));
+    const items = observations.map(o => {
+      const reasons = protectionReasons({ draftEdited: o.generatedEmails.some(e => edited.has(e.id)), status: o.status, editedAt: o.editedAt, reviewStatus: o.reviewStatus, generatedEmails: o.generatedEmails, evidenceCount: o._count.evidence, historyCount: o._count.history, assignmentCount: o._count.assignments });
+      return { id: o.id, title: o.title, protected: reasons.length > 0, reasons, reasonLabels: reasons.map(r => PROTECTION_LABEL[r]) };
+    });
+    return { total: items.length, protectedCount: items.filter(i => i.protected).length, replaceableCount: items.filter(i => !i.protected).length, items };
+  }
+
+  // Runs the analysis again without destroying history:
+  // - protected observations (see observation-rules.ts) are never deleted or overwritten;
+  // - observations nobody has touched are replaced only when the caller explicitly asks for it;
+  // - findings the new analysis returns that are not already present are added, waiting for review;
+  // - nothing is removed until the new analysis has succeeded.
+  async reanalyze(reportId: string, organizationId: string, userId: string, options: { replaceUnprotected?: boolean } = {}) {
     const report = await this.prisma.controlReport.findFirst({ where: { id: reportId, project: { organizationId } } });
     if (!report) throw new NotFoundException('Report not found');
     if (!report.rawText?.trim()) throw new BadRequestException('No extracted text is available for this report');
     if (!this.ai.isConfigured()) throw new BadRequestException('ANTHROPIC_API_KEY is not configured yet');
-    await this.prisma.generatedEmail.deleteMany({ where: { observation: { reportId } } });
-    await this.prisma.observation.deleteMany({ where: { reportId } });
-    await this.prisma.controlReport.update({
-      where: { id: reportId },
-      data: { analysisStatus: 'PROCESSING', analysisError: null, observationCount: 0, aiConfidence: null, rawAiResult: undefined },
+    const plan = await this.reanalysisPlan(reportId, organizationId);
+    if (plan.replaceableCount > 0 && !options.replaceUnprotected) {
+      throw new ConflictException(`Cette analyse remplacerait ${plan.replaceableCount} observation(s) IA non traitée(s). Confirmez le remplacement pour continuer ; les ${plan.protectedCount} observation(s) déjà traitée(s) seront conservées.`);
+    }
+    await this.prisma.controlReport.update({ where: { id: reportId }, data: { analysisStatus: 'PROCESSING', analysisError: null } });
+    return this.runAnalysis(reportId, report.projectId, report.rawText, organizationId, userId, {}, {
+      previousStatus: report.analysisStatus,
+      replaceIds: plan.items.filter(i => !i.protected).map(i => i.id),
+      keep: plan.items.filter(i => i.protected).map(i => ({ id: i.id, title: i.title })),
     });
-    return this.runAnalysis(reportId, report.projectId, report.rawText, organizationId, userId, {});
   }
 
   async materialize(reportId: string, organizationId: string, userId: string) {
@@ -297,6 +331,7 @@ export class ReportsService {
           severity,
           sourcePage,
           aiConfidence: confidence,
+          reviewStatus: 'PENDING',
           dueDate: safeForAutomation ? defaultDueDate : null,
           status: safeForAutomation ? (recipientEmail ? 'TO_SEND' : 'OPEN') : 'OPEN',
         },
@@ -358,11 +393,19 @@ export class ReportsService {
     return { alreadyMaterialized: false, created, createdDrafts, needsRecipient, needsValidation, needsReview, avgConfidence };
   }
 
-  private async runAnalysis(reportId: string, projectId: string, text: string, organizationId: string, userId: string, extra: Record<string, unknown>) {
+  private async runAnalysis(reportId: string, projectId: string, text: string, organizationId: string, userId: string, extra: Record<string, unknown>, merge?: { previousStatus: string; replaceIds: string[]; keep: { id: string; title: string }[] }) {
     this.logger.log(`Starting AI analysis for report ${reportId}`);
     try {
       const analyzed = await this.analyzeText(projectId, text, organizationId);
-      const items = analyzed.result.observations;
+      // The new analysis succeeded: only now are the untouched observations replaced.
+      const keptKeys = new Set((merge?.keep || []).map(k => findingKey(k.title)));
+      if (merge?.replaceIds.length) {
+        await this.prisma.generatedEmail.deleteMany({ where: { observationId: { in: merge.replaceIds }, sentAt: null } });
+        await this.prisma.observation.deleteMany({ where: { id: { in: merge.replaceIds } } });
+      }
+      // A finding already held by a protected observation is not created a second time.
+      const items = analyzed.result.observations.filter(item => !keptKeys.has(findingKey(item.title)));
+      const alreadyPresent = analyzed.result.observations.length - items.length;
       const project = await this.prisma.project.findUnique({
         where: { id: projectId },
         include: {
@@ -442,6 +485,7 @@ export class ReportsService {
             severity,
             sourcePage,
             aiConfidence: confidence,
+            reviewStatus: 'PENDING',
             dueDate: safeForAutomation ? defaultDueDate : null,
             status: safeForAutomation ? (recipientEmail ? 'TO_SEND' : 'OPEN') : 'OPEN',
           },
@@ -495,7 +539,7 @@ export class ReportsService {
           analysisStatus: status,
           aiModel: analyzed.model,
           aiConfidence: avgConfidence,
-          observationCount: created,
+          observationCount: created + (merge?.keep.length || 0),
           rawAiResult: analyzed.result as any,
           analysisError: null,
         },
@@ -522,6 +566,9 @@ export class ReportsService {
         summary: analyzed.result.summary,
         analysisStatus: status,
         createdObservations: created,
+        keptObservations: merge?.keep.length || 0,
+        replacedObservations: merge?.replaceIds.length || 0,
+        alreadyPresent,
         createdDrafts,
         needsRecipient,
         autoAssigned,
@@ -533,7 +580,7 @@ export class ReportsService {
       this.logger.error(`AI analysis failed for report ${reportId}: ${error?.stack || message}`);
       await this.prisma.controlReport.update({
         where: { id: reportId },
-        data: { analysisStatus: 'FAILED', analysisError: message },
+        data: { analysisStatus: (merge && merge.previousStatus !== 'PROCESSING' && merge.previousStatus !== 'PENDING' ? merge.previousStatus : 'FAILED') as any, analysisError: message },
       }).catch(() => {});
       return {
         reportId,

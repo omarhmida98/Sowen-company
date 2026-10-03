@@ -205,7 +205,10 @@ export type ApiObservation = {
   reference?:string|null; status:string; severity:string; sourcePage?:number|null; dueDate?:string|null; aiConfidence?:number|null; escalationLevel?:number|null; createdAt?:string; updatedAt?:string;
   lot?:{id:string;name:string}|null; company?:{id:string;name:string;email?:string|null}|null; report?:{id:string;issuer?:string|null}|null;
   suggestedLotName?:string|null; suggestedCompanyName?:string|null; category?:string|null;
+  reportId?:string|null; reviewStatus?:'PENDING'|'VALIDATED'|'REJECTED'|null; reviewedAt?:string|null; editedAt?:string|null;
 };
+export type ApiReportFailure = {kind:string; message:string; retryable:boolean; retryHint?:string|null};
+export type ApiReanalysisPlan = {total:number; protectedCount:number; replaceableCount:number; items:{id:string;title:string;protected:boolean;reasons:string[];reasonLabels:string[]}[]};
 export type ApiDocumentAnalysis = {
   documentType:string; isComplianceDocument:boolean; summary:string; relevance:string; confidence:number|null;
   keyInformation:{label:string;value:string}[];
@@ -215,7 +218,7 @@ export type ApiReportDetail = {
   project:{id:string;name:string;buildingType?:string|null;status?:string};
   document?:{id:string;name:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt?:string}|null;
   issuer?:string|null; reportDate?:string|null; createdAt?:string; analyzedAt?:string|null;
-  analysisStatus:string; analysisError?:string|null; aiModel?:string|null; aiConfidence?:number|null;
+  analysisStatus:string; analysisError?:string|null; failure?:ApiReportFailure|null; aiModel?:string|null; aiConfidence?:number|null;
   observationCount:number; rawTextLength:number; aiConfigured:boolean; aiProvider?:string; configuredModel?:string; analysis?:ApiDocumentAnalysis|null; detectedObservations:number; observations: ApiObservation[];
 };
 export type ApiRule = {id:string;domain:string;title:string;summary:string;requirement:string;actionRequest?:string|null;evidenceRequired?:string|null;severity:string;buildingType?:string|null;erpType?:string|null;lot?:{id:string;name:string}|null;source?:{id:string;title:string;reference?:string|null}|null;_count?:{versions:number}};

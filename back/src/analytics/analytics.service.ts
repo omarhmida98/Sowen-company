@@ -5,7 +5,7 @@ export class AnalyticsService {
   constructor(private prisma: PrismaService) {}
   async projectScore(projectId:string, organizationId:string){
     const project=await this.prisma.project.findUnique({where:{id:projectId},select:{organizationId:true}});if(!project)throw new NotFoundException('Project not found');if(project.organizationId!==organizationId)throw new ForbiddenException('Project does not belong to your organization');
-    const obs=await this.prisma.observation.findMany({where:{projectId},include:{lot:true}});
+    const obs=await this.prisma.observation.findMany({where:{projectId,OR:[{reviewStatus:null},{reviewStatus:{not:'REJECTED'}}]},include:{lot:true}});
     const total=obs.length; const resolved=obs.filter(o=>o.status==='RESOLVED').length;
     const score=total===0?100:Math.round((resolved/total)*100);
     const byLot=new Map<string,{lotId:string|null;name:string;total:number;resolved:number}>();
@@ -15,7 +15,7 @@ export class AnalyticsService {
   async management(organizationId:string){
     const [projects,observations,companies]=await Promise.all([
       this.prisma.project.findMany({where:{organizationId},include:{_count:{select:{observations:true}}}}),
-      this.prisma.observation.findMany({where:{project:{organizationId}},include:{company:true}}),
+      this.prisma.observation.findMany({where:{project:{organizationId},OR:[{reviewStatus:null},{reviewStatus:{not:'REJECTED'}}]},include:{company:true}}),
       this.prisma.company.findMany({where:{organizationId}}),
     ]);
     const now=Date.now(); const overdue=observations.filter(o=>o.dueDate&&new Date(o.dueDate).getTime()<now&&o.status!=='RESOLVED');

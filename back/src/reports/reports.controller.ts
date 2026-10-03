@@ -52,9 +52,15 @@ export class ReportsController {
   }
 
   @Roles('ADMIN','EDITOR')
+  @Get(':reportId/reanalysis-plan')
+  reanalysisPlan(@Param('reportId') reportId: string, @CurrentUser() user: AuthUser) {
+    return this.service.reanalysisPlan(reportId, user.organizationId);
+  }
+
+  @Roles('ADMIN','EDITOR')
   @Post(':reportId/reanalyze')
-  reanalyze(@Param('reportId') reportId: string, @CurrentUser() user: AuthUser) {
-    return this.service.reanalyze(reportId, user.organizationId, user.sub);
+  reanalyze(@Param('reportId') reportId: string, @CurrentUser() user: AuthUser, @Body() body?: { replaceUnprotected?: boolean }) {
+    return this.service.reanalyze(reportId, user.organizationId, user.sub, { replaceUnprotected: body?.replaceUnprotected === true });
   }
 
   @Roles('ADMIN','EDITOR')

@@ -96,3 +96,12 @@ html[data-theme="dark"] .send-success{color:#6fd09a}
 @media(max-width:700px){.send-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.send-modal .wizard-actions{flex-wrap:wrap}.send-modal .wizard-actions .btn{flex:1 1 auto;justify-content:center}}
 /* English is applied to the DOM after hydration; keep the French markup unpainted until then so no wrong-language text flashes. */
 html[data-lang="en"]:not([data-i18n-ready]) body>*{visibility:hidden}
+.obs-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px}.obs-filters label{margin:0}.obs-filters .obs-search{grid-column:span 2}
+.obs-count{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:#516079;margin-bottom:12px}.obs-count button{border:0;background:transparent;color:#1a4bb5;font-weight:800;cursor:pointer;font-size:12px;padding:0;text-decoration:underline}
+.review-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.failure-card{border-color:#f0c4c4;margin-bottom:16px}.failure-card details{margin-top:8px;font-size:12px}.failure-card summary{cursor:pointer;color:#516079;font-weight:700}
+.failure-reason{color:#b42318;font-size:12px;margin-top:4px}
+.plan-list{margin:6px 0 0;padding-left:18px;font-size:13px}.plan-list li{margin:3px 0}
+@media(max-width:760px){.obs-filters .obs-search{grid-column:auto}}
+html[data-theme="dark"] .obs-count{color:#c8d3e3}html[data-theme="dark"] .obs-count button{color:#9dbdf5}html[data-theme="dark"] .failure-card{border-color:#6b2a2a}html[data-theme="dark"] .failure-reason{color:#ff9d94}html[data-theme="dark"] .failure-card summary{color:#c8d3e3}
+.confirm-modal{width:min(480px,100%)}.btn.danger{background:#c0362c;border-color:#c0362c;color:#fff}.btn.danger:hover{background:#a52c23}

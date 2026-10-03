@@ -8,6 +8,7 @@ import { ObservationEmailDto, SendObservationEmailDto } from './emails.dto';
 
 const UNSENT: EmailStatus[] = ['DRAFT', 'NEEDS_RECIPIENT', 'ERROR'];
 const DRAFT_SAVED_ACTION = 'Brouillon de mail enregistré';
+const REJECTED_MESSAGE = 'Cette observation IA a été rejetée : elle ne peut pas être envoyée.';
 const SEVERITY_FR: Record<string, string> = { INFO: 'Information', LOW: 'Faible', MEDIUM: 'Moyenne', HIGH: 'Élevée', CRITICAL: 'Critique' };
 
 @Injectable()
@@ -49,6 +50,8 @@ export class EmailsService {
     const email = await this.ownedEmail(id, organizationId);
     if (!email.recipientEmail) throw new BadRequestException('Recipient email missing');
     this.assertConfigured();
+    const review = email.observationId ? (await this.prisma.observation.findUnique({ where: { id: email.observationId }, select: { reviewStatus: true } }))?.reviewStatus : null;
+    if (review === 'REJECTED') throw new BadRequestException(REJECTED_MESSAGE);
     // Atomic claim: only one request can take an unsent email, so a double click or a retry cannot send it twice.
     const claim = await this.prisma.generatedEmail.updateMany({ where: { id, sentAt: null, status: { in: UNSENT } }, data: { sentAt: new Date() } });
     if (!claim.count) throw new ConflictException('Ce mail a déjà été envoyé ou est en cours d’envoi.');
@@ -68,6 +71,11 @@ export class EmailsService {
     if (email.observationId) {
       const observation = await this.prisma.observation.findUnique({ where: { id: email.observationId }, include: { company: { select: { name: true } } } });
       companyName = observation?.company?.name ?? null;
+      // Sending is a person's decision: an observation still waiting for review is validated by it.
+      if (observation?.reviewStatus === 'PENDING') {
+        await this.prisma.observation.update({ where: { id: observation.id }, data: { reviewStatus: 'VALIDATED', reviewedAt: new Date(), reviewedById: userId } });
+        await this.prisma.observationHistory.create({ data: { observationId: observation.id, fromStatus: observation.status, toStatus: observation.status, note: 'Observation IA validée par l’envoi à l’entreprise' } });
+      }
       if (observation && observation.status !== 'RESOLVED' && observation.status !== 'SENT') {
         await this.prisma.observation.update({ where: { id: observation.id }, data: { status: 'SENT' } });
         await this.prisma.observationHistory.create({ data: { observationId: observation.id, fromStatus: observation.status, toStatus: 'SENT', note: `Mail envoyé à ${companyName || 'l’entreprise'} (${email.recipientEmail})` } });
@@ -77,10 +85,13 @@ export class EmailsService {
     return updated;
   }
   async sendDrafts(organizationId: string, userId: string, projectId?: string) {
-    const drafts = await this.prisma.generatedEmail.findMany({ where: { status: 'DRAFT', ...(projectId ? { projectId } : {}), project: { organizationId } } });
+    // "Send all drafts" never sends an AI observation nobody has reviewed, nor a rejected one.
+    const allDrafts = await this.prisma.generatedEmail.findMany({ where: { status: 'DRAFT', ...(projectId ? { projectId } : {}), project: { organizationId } }, include: { observation: { select: { reviewStatus: true } } } });
+    const drafts = allDrafts.filter(d => !d.observation || d.observation.reviewStatus === null || d.observation.reviewStatus === 'VALIDATED');
+    const skippedForReview = allDrafts.length - drafts.length;
     const results: Array<{id:string;ok:boolean;error?:string}> = [];
     for (const d of drafts) { try { await this.send(d.id, organizationId, userId); results.push({ id: d.id, ok: true }); } catch (e:any) { results.push({ id: d.id, ok: false, error: e?.message }); } }
-    return { total: drafts.length, results };
+    return { total: drafts.length, skippedForReview, results };
   }
   async remind(id: string, organizationId: string, userId: string) {
     const email = await this.ownedEmail(id, organizationId);
@@ -205,6 +216,7 @@ export class EmailsService {
         sourcePage: observation.sourcePage,
         dueDate: observation.dueDate,
         companyId: observation.companyId,
+        reviewStatus: observation.reviewStatus,
         project: { id: observation.project.id, name: observation.project.name },
         lot: observation.lot ? { id: observation.lot.id, name: observation.lot.name } : null,
         report: observation.report ? { id: observation.report.id, name: observation.report.document?.name ?? null, issuer: observation.report.issuer } : null,
@@ -220,6 +232,7 @@ export class EmailsService {
 
   async saveDraft(observationId: string, dto: ObservationEmailDto, organizationId: string, userId: string, log = true) {
     const observation = await this.ownedObservation(observationId, organizationId);
+    if (observation.reviewStatus === 'REJECTED') throw new BadRequestException(REJECTED_MESSAGE);
     const company = await this.ownedCompany(dto.companyId, organizationId);
     const subject = dto.subject.trim();
     const body = dto.body.trim();

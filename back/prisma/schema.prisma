@@ -100,6 +100,12 @@ enum EvidenceReviewStatus {
   REJECTED
 }
 
+enum ObservationReviewStatus {
+  PENDING
+  VALIDATED
+  REJECTED
+}
+
 enum ReportAnalysisStatus {
   PENDING
   PROCESSING
@@ -359,6 +365,12 @@ model Observation {
   aiConfidence    Float?
   escalationLevel Int               @default(0)
   lastEscalatedAt DateTime?
+  // Human review of an AI-extracted observation. Null for observations created by hand.
+  reviewStatus    ObservationReviewStatus?
+  reviewedAt      DateTime?
+  reviewedById    String?
+  // Set the first time a person edits the content of the observation.
+  editedAt        DateTime?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   assignments     ObservationAssignment[]

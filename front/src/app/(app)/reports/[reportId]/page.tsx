@@ -3,7 +3,7 @@ import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import {useParams} from 'next/navigation';
 import {ArrowLeft,DownloadCloud,RefreshCw,ListChecks,FileSearch} from 'lucide-react';
-import {api,ApiReportDetail,severityLabel,statusLabel,analysisStatusLabel,ANALYSIS_STATUS_TONE} from '@/lib/api';
+import {api,ApiReanalysisPlan,ApiReportDetail,severityLabel,statusLabel,analysisStatusLabel,ANALYSIS_STATUS_TONE} from '@/lib/api';
 
 const SEV_TONE: Record<string,string> = { CRITICAL: 'red', HIGH: 'red', MEDIUM: 'yellow', LOW: '', INFO: '' };
 const CATEGORY_LABEL: Record<string,string> = { OBSERVATION: 'Observation', NON_CONFORMITY: 'Non-conformité', RESERVATION: 'Réserve', TECHNICAL_REMARK: 'Remarque technique', RECOMMENDATION: 'Recommandation' };
@@ -22,13 +22,28 @@ export default function ReportDetailPage(){
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<'reanalyze' | 'materialize' | null>(null);
   const [msg, setMsg] = useState(''); const [isErr, setIsErr] = useState(false);
+  const [plan, setPlan] = useState<ApiReanalysisPlan | null>(null);
 
   const load = () => { api<ApiReportDetail>(`/reports/${reportId}`).then(setReport).catch(() => setReport(null)).finally(() => setLoading(false)); };
   useEffect(() => { setLoading(true); load(); }, [reportId]);
 
-  async function reanalyze() {
-    setBusy('reanalyze'); setMsg(''); setIsErr(false);
-    try { const r: any = await api(`/reports/${reportId}/reanalyze`, { method: 'POST' }); load(); setMsg(`${r.createdObservations ?? 0} observation(s) créée(s).`); }
+  // A report that already has observations is never re-analysed without showing what will be kept and replaced.
+  async function askReanalyze() {
+    setMsg(''); setIsErr(false);
+    try {
+      const p = await api<ApiReanalysisPlan>(`/reports/${reportId}/reanalysis-plan`);
+      if (p.total === 0) return reanalyze(false);
+      setPlan(p);
+    } catch (e: any) { setMsg(e.message); setIsErr(true); }
+  }
+  async function reanalyze(replaceUnprotected: boolean) {
+    setPlan(null); setBusy('reanalyze'); setMsg(''); setIsErr(false);
+    try {
+      const r: any = await api(`/reports/${reportId}/reanalyze`, { method: 'POST', body: JSON.stringify({ replaceUnprotected }) });
+      load();
+      if (r.analysisStatus === 'FAILED') { setMsg('La nouvelle analyse a échoué. Les observations existantes ont été conservées.'); setIsErr(true); }
+      else setMsg(`Analyse terminée : ${r.createdObservations ?? 0} nouvelle(s) observation(s) à valider, ${r.keptObservations ?? 0} conservée(s), ${r.replacedObservations ?? 0} remplacée(s).`);
+    }
     catch (e: any) { setMsg(e.message); setIsErr(true); }
     finally { setBusy(null); }
   }
@@ -69,7 +84,7 @@ export default function ReportDetailPage(){
       <div className="actions">
         <Link className="btn secondary" href="/reports"><ArrowLeft size={16}/>← Rapports</Link>
         {report.document && <button className="btn secondary" onClick={download} disabled={busy !== null}><DownloadCloud size={16}/>Télécharger le PDF</button>}
-        <button className="btn" onClick={reanalyze} disabled={!canReanalyze} title={report.aiConfigured ? undefined : "L'analyse IA n'est pas configurée."}><RefreshCw size={16}/>Relancer l'analyse</button>
+        <button className="btn" onClick={askReanalyze} disabled={!canReanalyze} title={report.aiConfigured ? undefined : "L'analyse IA n'est pas configurée."}><RefreshCw size={16}/>Relancer l'analyse</button>
       </div>
     </div>
 
@@ -92,7 +107,7 @@ export default function ReportDetailPage(){
         <div className="detail-block"><small>Modèle IA</small><p>{report.aiModel || report.configuredModel || '—'}</p></div>
         <div className="detail-block"><small>Confiance de l'analyse</small><p>{pct(report.aiConfidence)}</p></div>
       </div>
-      {report.analysisError && <div className="detail-block" style={{ marginTop: 8 }}><small>Erreur d'analyse</small><p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{friendlyError(report.analysisError)}</p></div>}
+      {report.analysisError && report.analysisStatus !== 'FAILED' && <div className="detail-block" style={{ marginTop: 8 }}><small>Dernière tentative d'analyse échouée</small><p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{friendlyError(report.analysisError)}</p></div>}
     </div>
 
     {report.analysis && <div className="card" style={{ marginBottom: 16 }}>
@@ -111,7 +126,13 @@ export default function ReportDetailPage(){
 
     {report.analysisStatus === 'PENDING' && <div className="notice">Analyse en attente — la clé d'analyse IA n'est pas configurée. Configurez ANTHROPIC_API_KEY côté serveur puis relancez l'analyse.</div>}
     {report.analysisStatus === 'PROCESSING' && <div className="notice">L'analyse IA de ce rapport est en cours…</div>}
-    {report.analysisStatus === 'FAILED' && <div className="notice error">Échec de l'analyse IA. {friendlyError(report.analysisError) || "Vérifiez la configuration de l'analyse IA puis relancez l'analyse."}</div>}
+    {report.analysisStatus === 'FAILED' && <div className="card failure-card">
+      <h2>Échec de l'analyse</h2>
+      <p>{report.failure?.message || "L'analyse a échoué pour une raison technique."}</p>
+      {report.failure?.retryHint && <p className="muted">{report.failure.retryHint}</p>}
+      {report.failure?.retryable && <div className="actions" style={{ margin: '12px 0' }}><button className="btn" onClick={askReanalyze} disabled={!canReanalyze}><RefreshCw size={16}/>{busy === 'reanalyze' ? 'Analyse en cours…' : "Relancer l'analyse"}</button></div>}
+      {report.analysisError && <details><summary>Détail technique</summary><p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{friendlyError(report.analysisError)}</p></details>}
+    </div>}
     {(report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && report.observationCount === 0 && report.detectedObservations === 0 && <div className="notice">{report.analysis ? "Document analysé — il ne contient aucune observation de conformité à suivre." : 'Analyse terminée — aucune observation détectée'}</div>}
     {(report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && report.observationCount === 0 && report.detectedObservations > 0 && <div className="notice">Aucune observation détectée par l'IA.</div>}
 
@@ -130,7 +151,9 @@ export default function ReportDetailPage(){
             <div className="badges">
               <span className={`badge ${SEV_TONE[o.severity] || ''}`}>{severityLabel(o.severity)}</span>
               {o.category && CATEGORY_LABEL[o.category] ? <span className="badge">{CATEGORY_LABEL[o.category]}</span> : null}
-              <span className="badge yellow">{statusLabel(o.status)}</span>
+              {o.reviewStatus === 'REJECTED' ? <span className="badge red">Rejetée</span> : <span className="badge yellow">{statusLabel(o.status)}</span>}
+              {o.reviewStatus === 'PENDING' && <span className="badge yellow">IA · à valider</span>}
+              {o.reviewStatus === 'VALIDATED' && <span className="badge green">Validée</span>}
               {o.sourcePage ? <span className="badge">Page {o.sourcePage}</span> : null}
               {typeof o.aiConfidence === 'number' && <span className="confidence">Confiance {Math.round(o.aiConfidence * 100)}%</span>}
             </div>
@@ -146,5 +169,16 @@ export default function ReportDetailPage(){
           </div>
         ))}</div>}
     </div>
+
+    {plan && <div className="modal-backdrop"><div className="modal">
+      <div className="modal-head"><div><div className="eyebrow">Rapport</div><h2>Relancer l'analyse</h2></div><button className="icon-btn" onClick={() => setPlan(null)}>×</button></div>
+      <p>Ce rapport a déjà {plan.total} observation(s). Une nouvelle analyse ne supprime jamais une observation déjà traitée.</p>
+      {plan.protectedCount > 0 && <div className="detail-block"><small>Conservées telles quelles ({plan.protectedCount})</small>
+        <ul className="plan-list">{plan.items.filter(i => i.protected).map(i => <li key={i.id}><strong>{i.title}</strong><span className="muted"> — {i.reasonLabels.map((label, k) => <span key={label}>{k ? ', ' : ''}{label}</span>)}</span></li>)}</ul></div>}
+      {plan.replaceableCount > 0 && <div className="detail-block"><small>Remplacées par le nouveau résultat ({plan.replaceableCount})</small>
+        <ul className="plan-list">{plan.items.filter(i => !i.protected).map(i => <li key={i.id}><strong>{i.title}</strong><span className="muted"> — observation IA jamais traitée</span></li>)}</ul></div>}
+      <p className="muted">Les points que la nouvelle analyse détecte en plus sont ajoutés comme observations « à valider ». Si l'analyse échoue, rien n'est modifié.</p>
+      <div className="wizard-actions"><button className="btn secondary" onClick={() => setPlan(null)}>Annuler</button><button className="btn" onClick={() => reanalyze(plan.replaceableCount > 0)}>{plan.replaceableCount > 0 ? `Relancer et remplacer ${plan.replaceableCount} observation(s)` : "Relancer l'analyse"}</button></div>
+    </div></div>}
   </>;
 }

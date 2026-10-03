@@ -9,7 +9,7 @@ type E={
   document?:{name:string;mimeType?:string|null}|null
 };
 
-export function EvidenceManager({observationId}:{observationId:string}){
+export function EvidenceManager({observationId,readOnly=false}:{observationId:string;readOnly?:boolean}){
   const [rows,setRows]=useState<E[]>([]),[file,setFile]=useState<File|null>(null),[type,setType]=useState('PHOTO'),[note,setNote]=useState(''),[busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[isErr,setIsErr]=useState(false);
   const load=()=>api<E[]>(`/evidence?observationId=${observationId}`).then(setRows).catch(()=>{});
   useEffect(()=>{load()},[observationId]);
@@ -36,12 +36,12 @@ export function EvidenceManager({observationId}:{observationId:string}){
 
   return <div className="card">
     <div className="section-head"><div><h3>Preuves & justificatifs</h3><p className="muted">Photos avant/après, PV, certificats, fiches techniques et notes vocales.</p></div></div>
-    <div className="form-grid">
+    {!readOnly&&<><div className="form-grid">
       <label>Type<select value={type} onChange={e=>setType(e.target.value)}><option value="BEFORE">Photo avant</option><option value="AFTER">Photo après</option><option value="PHOTO">Photo</option><option value="PV">PV</option><option value="CERTIFICATE">Certificat</option><option value="TECHNICAL_SHEET">Fiche technique</option><option value="VOICE_NOTE">Note vocale</option><option value="OTHER">Autre</option></select></label>
       <label>Fichier<input type="file" accept="image/*,application/pdf,audio/*" onChange={e=>setFile(e.target.files?.[0]||null)}/></label>
     </div>
     <label>Note<input value={note} onChange={e=>setNote(e.target.value)} placeholder="Commentaire optionnel"/></label>
-    <button className="btn" disabled={!file||busy} onClick={upload}><Camera size={16}/>{busy?'Envoi...':'Ajouter une preuve'}</button>
+    <button className="btn" disabled={!file||busy} onClick={upload}><Camera size={16}/>{busy?'Envoi...':'Ajouter une preuve'}</button></>}
     {msg&&<div className={isErr?'notice error':'notice'}>{msg}</div>}
 
     <div className="stack" style={{marginTop:14}}>
@@ -50,7 +50,7 @@ export function EvidenceManager({observationId}:{observationId:string}){
         <div className="actions">
           {r.document&&<button className="icon-btn" title="Télécharger" aria-label="Télécharger" onClick={()=>download(r)}><DownloadCloud size={16}/></button>}
           <span className={`badge ${r.reviewStatus==='APPROVED'?'green':r.reviewStatus==='REJECTED'?'red':'yellow'}`}>{statusLabel(r.reviewStatus)}</span>
-          {(r.reviewStatus||'PENDING')==='PENDING'&&<><button className="icon-btn" disabled={busy} title="Valider" onClick={()=>review(r.id,'APPROVED')}><CheckCircle2 size={16}/></button><button className="icon-btn" disabled={busy} title="Refuser" onClick={()=>review(r.id,'REJECTED')}><XCircle size={16}/></button></>}
+          {!readOnly&&(r.reviewStatus||'PENDING')==='PENDING'&&<><button className="icon-btn" disabled={busy} title="Valider" onClick={()=>review(r.id,'APPROVED')}><CheckCircle2 size={16}/></button><button className="icon-btn" disabled={busy} title="Refuser" onClick={()=>review(r.id,'REJECTED')}><XCircle size={16}/></button></>}
         </div>
       </div>)}
       {rows.length===0&&<div className="muted">Aucune preuve.</div>}

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ObservationsService } from './observations.service';
-import { AssignObservationDto, CreateObservationDto, TransitionObservationDto, UpdateObservationDto } from './observations.dto';
+import { AssignObservationDto, CreateObservationDto, ReviewObservationDto, TransitionObservationDto, UpdateObservationDto } from './observations.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import type { AuthUser } from '../auth/auth.types';
@@ -20,6 +20,9 @@ export class ObservationsController {
 
   @Roles('ADMIN','EDITOR') @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateObservationDto, @CurrentUser() user: AuthUser) { return this.service.update(id, dto, user.organizationId, user.sub); }
+
+  @Roles('ADMIN','EDITOR') @Post(':id/review')
+  review(@Param('id') id: string, @Body() dto: ReviewObservationDto, @CurrentUser() user: AuthUser) { return this.service.review(id, dto, user.organizationId, user.sub); }
 
   @Roles('ADMIN','EDITOR') @Post(':id/status')
   transition(@Param('id') id: string, @Body() dto: TransitionObservationDto, @CurrentUser() user: AuthUser) { return this.service.transition(id, dto, user.organizationId, user.sub); }

@@ -1,7 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ObservationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AssignObservationDto, CreateObservationDto, TransitionObservationDto, UpdateObservationDto } from './observations.dto';
+import { AssignObservationDto, CreateObservationDto, ReviewObservationDto, TransitionObservationDto, UpdateObservationDto } from './observations.dto';
+import { EDITABLE_FIELDS, describeChanges, diffObservation } from './observation-rules';
 
 const ALLOWED_TRANSITIONS: Record<ObservationStatus, ObservationStatus[]> = {
   OPEN: ['TO_SEND', 'BLOCKED', 'RESOLVED'],
@@ -110,27 +111,78 @@ export class ObservationsService {
     return observation;
   }
 
+  // Edits an observation. Only the fields that really change are written, each change is recorded in the
+  // observation history and in the activity log, and the first edit marks the observation as edited by a person.
   async update(id: string, dto: UpdateObservationDto, organizationId: string, userId: string) {
-    const current = await this.prisma.observation.findUnique({ where: { id }, include: { project: true } });
+    const current = await this.prisma.observation.findFirst({ where: { id, project: { organizationId } } });
     if (!current) throw new NotFoundException('Observation not found');
-    if (current.project.organizationId !== organizationId) throw new ForbiddenException('Observation does not belong to your organization');
-    await this.assertCompanyOwned(dto.companyId, organizationId);
-    await this.assertLotExists(dto.lotId);
+    if (dto.companyId) await this.assertCompanyOwned(dto.companyId, organizationId);
+    if (dto.lotId) await this.assertLotExists(dto.lotId);
 
-    const { status, ...safeData } = dto;
-    const updated = await this.prisma.observation.update({
-      where: { id },
-      data: { ...safeData, dueDate: dto.dueDate ? new Date(dto.dueDate) : dto.dueDate === undefined ? undefined : null },
-    });
-    if (status && status !== current.status) await this.transition(id, { status }, organizationId, userId);
-    if (dto.companyId !== undefined || dto.lotId !== undefined || dto.dueDate !== undefined || dto.requiredAction !== undefined) {
-      const existingDraft = await this.prisma.generatedEmail.findFirst({ where: { observationId: id, status: { in: ['DRAFT','NEEDS_RECIPIENT'] } } });
-      if (existingDraft) {
-        await this.prisma.generatedEmail.delete({ where: { id: existingDraft.id } });
+    const { status, ...fields } = dto;
+    const next: Record<string, unknown> = {};
+    for (const field of EDITABLE_FIELDS) {
+      if (fields[field] === undefined) continue;
+      if (field === 'dueDate') next.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
+      else if (field === 'title' || field === 'description') next[field] = String(fields[field]).trim();
+      else if (field === 'severity') next.severity = fields.severity;
+      else next[field] = typeof fields[field] === 'string' ? (fields[field] as string).trim() || null : null;
+    }
+    if (next.title === '' || next.description === '') throw new BadRequestException('Le titre et la description ne peuvent pas être vides.');
+
+    const ids = [current.lotId, current.companyId, next.lotId, next.companyId].filter((v): v is string => typeof v === 'string');
+    const names: Record<string, string> = {};
+    if (ids.length) {
+      for (const lot of await this.prisma.lot.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })) names[lot.id] = lot.name;
+      for (const company of await this.prisma.company.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })) names[company.id] = company.name;
+    }
+    const changes = diffObservation(current, next as any, names);
+
+    if (changes.length) {
+      const data: Record<string, unknown> = {};
+      for (const change of changes) data[change.field] = next[change.field];
+      await this.prisma.observation.update({ where: { id }, data: { ...data, editedAt: new Date() } });
+      await this.prisma.observationHistory.create({ data: { observationId: id, fromStatus: current.status, toStatus: current.status, note: describeChanges(changes) } });
+      await this.prisma.activityLog.create({ data: { projectId: current.projectId, userId, action: 'Observation modifiée', entityType: 'Observation', entityId: id, metadata: { changes: changes.map(c => ({ field: c.field, from: c.from, to: c.to })) } } });
+      // An automatic draft that nobody saved or sent is rebuilt from the new content; a draft a person saved is kept.
+      const draft = await this.prisma.generatedEmail.findFirst({ where: { observationId: id, sentAt: null, status: { in: ['DRAFT', 'NEEDS_RECIPIENT'] } } });
+      if (draft && !(await this.prisma.activityLog.findFirst({ where: { entityType: 'GeneratedEmail', entityId: draft.id, action: { startsWith: 'Brouillon de mail enregistré' } }, select: { id: true } }))) {
+        await this.prisma.generatedEmail.delete({ where: { id: draft.id } });
         await this.ensureDraft(id);
       }
     }
-    await this.prisma.activityLog.create({ data: { projectId: current.projectId, userId, action: 'Observation modifiée', entityType: 'Observation', entityId: id } });
+    if (status && status !== current.status) await this.transition(id, { status }, organizationId, userId);
+    return this.get(id, organizationId);
+  }
+
+  // Human decision on an observation extracted by the AI from a report.
+  async review(id: string, dto: ReviewObservationDto, organizationId: string, userId: string) {
+    const current = await this.prisma.observation.findFirst({ where: { id, project: { organizationId } }, include: { generatedEmails: { select: { id: true, sentAt: true, status: true } } } });
+    if (!current) throw new NotFoundException('Observation not found');
+    if (!current.reviewStatus) throw new BadRequestException('Cette observation a été créée manuellement : elle n’a pas de revue IA.');
+    if (dto.decision === current.reviewStatus) return this.get(id, organizationId);
+    const note = dto.note?.trim();
+    const sent = current.generatedEmails.some(e => e.sentAt && e.status !== 'ERROR');
+
+    if (dto.decision === 'REJECTED') {
+      // Something already sent to a company cannot be un-sent: it has to be handled through the normal workflow.
+      if (sent) throw new BadRequestException('Cette observation a déjà été envoyée à une entreprise : elle ne peut plus être rejetée. Clôturez-la si elle n’est plus d’actualité.');
+      // A rejected observation leaves every active list (it is closed) and its unsent drafts are removed.
+      await this.prisma.generatedEmail.deleteMany({ where: { observationId: id, sentAt: null } });
+      await this.prisma.observation.update({ where: { id }, data: { reviewStatus: 'REJECTED', reviewedAt: new Date(), reviewedById: userId, status: 'RESOLVED' } });
+      await this.prisma.observationHistory.create({ data: { observationId: id, fromStatus: current.status, toStatus: 'RESOLVED', note: `Observation IA rejetée${note ? ` : ${note}` : ''}` } });
+    } else if (dto.decision === 'VALIDATED') {
+      const reopen = current.reviewStatus === 'REJECTED';
+      await this.prisma.observation.update({ where: { id }, data: { reviewStatus: 'VALIDATED', reviewedAt: new Date(), reviewedById: userId, ...(reopen ? { status: 'OPEN' } : {}) } });
+      await this.prisma.observationHistory.create({ data: { observationId: id, fromStatus: current.status, toStatus: reopen ? 'OPEN' : current.status, note: `Observation IA validée${note ? ` : ${note}` : ''}` } });
+      if (reopen) await this.ensureDraft(id);
+    } else {
+      const reopen = current.reviewStatus === 'REJECTED';
+      await this.prisma.observation.update({ where: { id }, data: { reviewStatus: 'PENDING', reviewedAt: null, reviewedById: null, ...(reopen ? { status: 'OPEN' } : {}) } });
+      await this.prisma.observationHistory.create({ data: { observationId: id, fromStatus: current.status, toStatus: reopen ? 'OPEN' : current.status, note: 'Revue IA remise à valider' } });
+      if (reopen) await this.ensureDraft(id);
+    }
+    await this.prisma.activityLog.create({ data: { projectId: current.projectId, userId, action: dto.decision === 'REJECTED' ? 'Observation IA rejetée' : dto.decision === 'VALIDATED' ? 'Observation IA validée' : 'Observation IA remise à valider', entityType: 'Observation', entityId: id, metadata: note ? { note } : undefined } });
     return this.get(id, organizationId);
   }
 
@@ -139,6 +191,7 @@ export class ObservationsService {
     if (!current) throw new NotFoundException('Observation not found');
     if (current.project.organizationId !== organizationId) throw new ForbiddenException('Observation does not belong to your organization');
     if (dto.status === current.status) return current;
+    if (current.reviewStatus === 'REJECTED') throw new BadRequestException('Cette observation IA a été rejetée. Rétablissez-la avant de modifier son statut.');
     if (!ALLOWED_TRANSITIONS[current.status].includes(dto.status)) {
       throw new BadRequestException(`Transition ${current.status} → ${dto.status} non autorisée`);
     }

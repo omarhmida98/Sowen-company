@@ -6,9 +6,9 @@ import Link from 'next/link';
 import {AlertTriangle, CheckCircle2, FileText, Mail, RotateCcw, Send, ShieldAlert} from 'lucide-react';
 import {api} from '@/lib/api';
 
-type Props={id:string;projectId:string;status:string;emailId?:string|null;onChanged?:()=>void};
+type Props={id:string;projectId:string;status:string;emailId?:string|null;onChanged?:()=>void;readOnly?:boolean};
 
-export function ObservationActions({id,projectId,status,emailId,onChanged}:Props){
+export function ObservationActions({id,projectId,status,emailId,onChanged,readOnly=false}:Props){
   const router=useRouter();
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState('');
@@ -39,6 +39,7 @@ export function ObservationActions({id,projectId,status,emailId,onChanged}:Props
       <Link href={`/projects/${projectId}/mails`}><Mail size={17}/>Voir les mails</Link>
       <Link href={`/projects/${projectId}/documents`}><FileText size={17}/>Documents</Link>
 
+      {!readOnly&&<>
       {status==='OPEN'&&<button disabled={busy} onClick={()=>transition('TO_SEND','Prête à être transmise à l’entreprise')}><Send size={17}/>Préparer l’envoi</button>}
       {status==='SENT'&&<button disabled={busy} onClick={()=>transition('WAITING','En attente du retour entreprise')}><Send size={17}/>Passer en attente</button>}
       {['SENT','WAITING','TO_RELAUNCH'].includes(status)&&<button disabled={busy} onClick={remind}><AlertTriangle size={17}/>Relancer l’entreprise</button>}
@@ -46,6 +47,7 @@ export function ObservationActions({id,projectId,status,emailId,onChanged}:Props
       {status==='RESOLVED'&&<button disabled={busy} onClick={()=>transition('OPEN','Observation rouverte')}><RotateCcw size={17}/>Rouvrir</button>}
       {canClose&&<button disabled={busy} onClick={()=>transition('RESOLVED','Observation validée et clôturée')}><CheckCircle2 size={17}/>Clôturer</button>}
       {!['BLOCKED','RESOLVED'].includes(status)&&<button disabled={busy} onClick={()=>transition('BLOCKED','Point bloqué - intervention requise')}><ShieldAlert size={17}/>Bloquer</button>}
+      </>}
     </div>
     {msg&&<div className={isErr?'notice error':'notice'}>{msg}</div>}
   </>
