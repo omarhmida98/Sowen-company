@@ -98,9 +98,25 @@ for (const p of sourceFiles) {
   if (/re_[A-Za-z0-9_-]{20,}/.test(text)) problems.push(`Possible Resend key committed in ${path.relative(root, p)}`);
 }
 
+// The portal signing secret must be documented in the env templates, and its absence from the local
+// configuration is reported (names only: no value is read out or printed).
+for (const rel of ['back/.env.example', '.env.example']) {
+  const abs = path.join(root, rel);
+  if (fs.existsSync(abs) && !/^PORTAL_TOKEN_SECRET=/m.test(fs.readFileSync(abs, 'utf8'))) problems.push(`${rel} should document PORTAL_TOKEN_SECRET (secret signing the company portal links)`);
+}
+const notes = [];
+const backEnv = path.join(root, 'back/.env');
+if (fs.existsSync(backEnv)) {
+  const defined = (name) => new RegExp(`^${name}=["']?[^"'\\s#]`, 'm').test(fs.readFileSync(backEnv, 'utf8'));
+  if (!defined('PORTAL_TOKEN_SECRET')) notes.push(defined('PUBLIC_APP_URL')
+    ? 'back/.env sets PUBLIC_APP_URL but not PORTAL_TOKEN_SECRET: the API will refuse to start. Set PORTAL_TOKEN_SECRET.'
+    : 'PORTAL_TOKEN_SECRET is not set in back/.env. This is fine for local development (a development key is used), but it MUST be configured in production, where company portal links are used: the API refuses to start without it when NODE_ENV="production" or PUBLIC_APP_URL is set.');
+}
+
 if (problems.length) {
   console.error('\nSOWEN preflight failed:\n');
   for (const p of problems) console.error(`- ${p}`);
   process.exit(1);
 }
+for (const note of notes) console.warn(`SOWEN preflight note: ${note}`);
 console.log(`SOWEN preflight passed: release tree, secret-file exclusion and upload ignore rules look correct. (${secretFiles.length} local secret file(s) present and excluded from the release)`);

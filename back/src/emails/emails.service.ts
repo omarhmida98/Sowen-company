@@ -1,9 +1,9 @@
-import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { EmailStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailSendError, MailerService } from '../mailer/mailer.service';
 import { renderObservationEmail } from '../mailer/email-template';
-import { companyPortalCta } from '../mailer/portal-link';
+import { PortalService } from '../portal/portal.service';
 import { ObservationEmailDto, SendObservationEmailDto } from './emails.dto';
 
 const UNSENT: EmailStatus[] = ['DRAFT', 'NEEDS_RECIPIENT', 'ERROR'];
@@ -17,28 +17,32 @@ export class EmailsService {
   // Observations with a send in progress on this instance; the database claim in send() covers the email itself.
   private readonly sending = new Set<string>();
 
-  constructor(private prisma: PrismaService, private mailer: MailerService) {}
+  constructor(private prisma: PrismaService, private mailer: MailerService, @Optional() private portal?: PortalService) {}
   list(organizationId: string, projectId?: string) { return this.prisma.generatedEmail.findMany({ where: { ...(projectId ? { projectId } : {}), project: { organizationId } }, include: { observation: { include: { company: true, lot: true } } }, orderBy: { createdAt: 'desc' } }); }
   isConfigured() { return this.mailer.isConfigured(); }
   private assertConfigured() {
     if (!this.mailer.isConfigured()) throw new BadRequestException('L’envoi d’emails n’est pas configuré.');
   }
   // HTML + plain-text version of a stored email. The stored body stays the plain text the user edited.
-  private async render(email: { projectId: string; observationId: string | null; body: string }, subject: string, reminder?: { level: number }) {
+  // `portal.create` is set when a person sends the observation: the company then gets a portal access if it has none.
+  private async render(email: { projectId: string; observationId: string | null; body: string }, subject: string, reminder?: { level: number }, portal: { create?: boolean; userId?: string | null } = {}) {
     const [project, observation] = await Promise.all([
       this.prisma.project.findUnique({ where: { id: email.projectId }, select: { name: true, organization: { select: { name: true } } } }),
       email.observationId ? this.prisma.observation.findUnique({ where: { id: email.observationId }, select: { title: true, reference: true, companyId: true } }) : null,
     ]);
-    return renderObservationEmail({
+    const link = (await this.portal?.emailLink(email.projectId, observation?.companyId, portal)) ?? { cta: null, link: null };
+    const rendered = renderObservationEmail({
       subject,
       body: email.body,
       projectName: project?.name,
       observationTitle: observation?.title,
       reference: observation?.reference,
       organizationName: project?.organization.name,
-      cta: await companyPortalCta(this.prisma, this.mailer, email.projectId, observation?.companyId),
+      cta: link.cta,
       reminder,
     });
+    // inEmail: the message really contains the button. When it does not, `link` lets the team pass the portal link on.
+    return { ...rendered, portal: { inEmail: Boolean(link.cta), link: link.cta ? null : link.link } };
   }
   private async ownedEmail(id: string, organizationId: string) {
     const email = await this.prisma.generatedEmail.findUnique({ where: { id }, include: { project: { select: { organizationId: true } } } });
@@ -57,8 +61,11 @@ export class EmailsService {
     if (!claim.count) throw new ConflictException('Ce mail a déjà été envoyé ou est en cours d’envoi.');
     // Only the provider call can put the email back in error: once the provider has accepted it, it must never look unsent.
     let providerMessageId: string | undefined;
+    let portalInfo: { inEmail: boolean; link: string | null } = { inEmail: false, link: null };
     try {
-      providerMessageId = (await this.mailer.send({ to: email.recipientEmail, subject: email.subject, ...(await this.render(email, email.subject)) })).id;
+      const { portal, ...content } = await this.render(email, email.subject, undefined, { create: true, userId });
+      portalInfo = portal;
+      providerMessageId = (await this.mailer.send({ to: email.recipientEmail, subject: email.subject, ...content })).id;
     } catch (e: any) {
       const reason = typeof e?.message === 'string' && e.message.trim() ? e.message : 'Unknown email error';
       this.logger.error(`Email ${id} could not be sent: ${reason}`);
@@ -82,7 +89,7 @@ export class EmailsService {
       }
     }
     await this.prisma.activityLog.create({ data: { projectId: email.projectId, userId, action: companyName ? `Mail envoyé à ${companyName}` : 'Mail envoyé', entityType: 'GeneratedEmail', entityId: id, metadata: { recipient: email.recipientEmail, companyName, observationId: email.observationId } } });
-    return updated;
+    return { ...updated, portal: portalInfo };
   }
   async sendDrafts(organizationId: string, userId: string, projectId?: string) {
     // "Send all drafts" never sends an AI observation nobody has reviewed, nor a rejected one.
@@ -99,7 +106,8 @@ export class EmailsService {
     this.assertConfigured();
     const subject = email.subject.startsWith('Relance') ? email.subject : `Relance - ${email.subject}`;
     try {
-      await this.mailer.send({ to: email.recipientEmail, subject, ...(await this.render(email, subject, { level: 0 })) });
+      const { portal: _portal, ...content } = await this.render(email, subject, { level: 0 });
+      await this.mailer.send({ to: email.recipientEmail, subject, ...content });
     } catch (e: any) {
       this.logger.error(`Reminder for email ${id} could not be sent: ${e?.message}`);
       throw new BadGatewayException(`${(e instanceof MailSendError && e.userMessage) || 'L’envoi de la relance a échoué.'} Merci de réessayer.`);
@@ -120,11 +128,15 @@ export class EmailsService {
     if (!email) throw new NotFoundException('Resolve link invalid');
     const now = new Date();
     const updated = await this.prisma.generatedEmail.update({ where: { id: email.id }, data: { status: 'RESOLVED', resolvedAt: now } });
+    // The recipient says the point is dealt with. That is a company response, not a closure: only an administrator
+    // or editor closes an observation.
     if (email.observationId && email.observation && email.observation.status !== 'RESOLVED') {
-      await this.prisma.observation.update({ where: { id: email.observationId }, data: { status: 'RESOLVED' } });
-      await this.prisma.observationHistory.create({ data: { observationId: email.observationId, fromStatus: email.observation.status, toStatus: 'RESOLVED', note: 'Clôturé via lien destinataire' } });
+      const next = ['SENT', 'TO_RELAUNCH'].includes(email.observation.status) ? 'WAITING' : email.observation.status;
+      await this.prisma.observationResponse.create({ data: { observationId: email.observationId, source: 'PORTAL', message: 'L’entreprise indique avoir traité ce point (lien du mail).', companyId: email.observation.companyId } });
+      if (next !== email.observation.status) await this.prisma.observation.update({ where: { id: email.observationId }, data: { status: 'WAITING' } });
+      await this.prisma.observationHistory.create({ data: { observationId: email.observationId, fromStatus: email.observation.status, toStatus: next, note: 'L’entreprise indique avoir traité ce point (lien du mail)' } });
     }
-    await this.prisma.activityLog.create({ data: { projectId: email.projectId, action: 'Mail / observation clôturé via lien destinataire', entityType: 'GeneratedEmail', entityId: email.id } });
+    await this.prisma.activityLog.create({ data: { projectId: email.projectId, action: 'Point déclaré traité par le destinataire du mail', entityType: 'GeneratedEmail', entityId: email.id } });
     return updated;
   }
 
@@ -267,7 +279,8 @@ export class EmailsService {
       if (alreadySent && !dto.allowResend) throw new ConflictException('Cette observation a déjà été envoyée à cette entreprise.');
       const draft = await this.saveDraft(observationId, dto, organizationId, userId, false);
       const email = await this.send(draft.id, organizationId, userId);
-      return { email, company: { id: company.id, name: company.name, email: company.email } };
+      const { portal, ...sent } = email;
+      return { email: sent, company: { id: company.id, name: company.name, email: company.email }, portal };
     } finally {
       this.sending.delete(observationId);
     }

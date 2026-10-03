@@ -1,4 +1,0 @@
-'use client';
-import {useSession} from '@/lib/session';
-import {useState} from 'react';import {Link2} from 'lucide-react';import {api} from '@/lib/api';
-export function PortalAccessButton({companyId,projectId}:{companyId:string;projectId:string}){const {can}=useSession();const [url,setUrl]=useState(''),[busy,setBusy]=useState(false);async function make(){setBusy(true);try{const r:any=await api('/portal/access',{method:'POST',body:JSON.stringify({companyId,projectId})});setUrl(`${window.location.origin}/portal/${r.token}`)}finally{setBusy(false)}}if(!can('portal.manage'))return null;return <div>{!url?<button className="btn secondary" onClick={make} disabled={busy}><Link2 size={15}/>{busy?'Création...':'Portail entreprise'}</button>:<div className="notice"><strong>Lien sécurisé</strong><div style={{wordBreak:'break-all',marginTop:5}}>{url}</div></div>}</div>}

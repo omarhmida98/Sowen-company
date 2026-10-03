@@ -6,9 +6,9 @@ import Link from 'next/link';
 import {AlertTriangle, CheckCircle2, FileText, Mail, RotateCcw, Send, ShieldAlert} from 'lucide-react';
 import {api} from '@/lib/api';
 
-type Props={id:string;projectId:string;status:string;emailId?:string|null;onChanged?:()=>void;readOnly?:boolean};
+type Props={id:string;projectId:string;status:string;emailId?:string|null;onChanged?:()=>void;readOnly?:boolean;onCloseRequest?:()=>void};
 
-export function ObservationActions({id,projectId,status,emailId,onChanged,readOnly=false}:Props){
+export function ObservationActions({id,projectId,status,emailId,onChanged,readOnly=false,onCloseRequest}:Props){
   const router=useRouter();
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState('');
@@ -45,7 +45,7 @@ export function ObservationActions({id,projectId,status,emailId,onChanged,readOn
       {['SENT','WAITING','TO_RELAUNCH'].includes(status)&&<button disabled={busy} onClick={remind}><AlertTriangle size={17}/>Relancer l’entreprise</button>}
       {status==='BLOCKED'&&<button disabled={busy} onClick={()=>transition('OPEN','Blocage levé')}><RotateCcw size={17}/>Lever le blocage</button>}
       {status==='RESOLVED'&&<button disabled={busy} onClick={()=>transition('OPEN','Observation rouverte')}><RotateCcw size={17}/>Rouvrir</button>}
-      {canClose&&<button disabled={busy} onClick={()=>transition('RESOLVED','Observation validée et clôturée')}><CheckCircle2 size={17}/>Clôturer</button>}
+      {canClose&&onCloseRequest&&<button disabled={busy} onClick={onCloseRequest}><CheckCircle2 size={17}/>Clôturer</button>}
       {!['BLOCKED','RESOLVED'].includes(status)&&<button disabled={busy} onClick={()=>transition('BLOCKED','Point bloqué - intervention requise')}><ShieldAlert size={17}/>Bloquer</button>}
       </>}
     </div>

@@ -39,6 +39,9 @@ export class EvidenceService{
 
   async review(id:string,status:EvidenceReviewStatus,note:string|undefined,organizationId:string,userId:string){
     if(status==='PENDING')throw new BadRequestException('Use APPROVED or REJECTED when reviewing evidence');
+    const reason=String(note||'').trim();
+    // A refusal is shown to the company: it has to say what is wrong.
+    if(status==='REJECTED'&&!reason)throw new BadRequestException('Indiquez le motif du refus : il est transmis à l’entreprise.');
     const evidence=await this.p.observationEvidence.findFirst({
       where:{id,observation:{project:{organizationId}}},
       include:{observation:true,document:true}
@@ -47,23 +50,19 @@ export class EvidenceService{
 
     const updated=await this.p.observationEvidence.update({
       where:{id},
-      data:{reviewStatus:status,reviewNote:note||null,reviewedAt:new Date(),reviewedById:userId},
+      data:{reviewStatus:status,reviewNote:reason||null,reviewedAt:new Date(),reviewedById:userId},
       include:{document:true}
     });
 
-    if(status==='REJECTED' && evidence.observation.status!=='RESOLVED' && evidence.observation.status!=='TO_RELAUNCH'){
-      await this.p.observation.update({where:{id:evidence.observationId},data:{status:'TO_RELAUNCH'}});
-      await this.p.observationHistory.create({
-        data:{observationId:evidence.observationId,fromStatus:evidence.observation.status,toStatus:'TO_RELAUNCH',note:note||'Justificatif refusé - nouvelle action requise'}
-      });
-    }
-
-    if(status==='APPROVED' && ['SENT','TO_RELAUNCH'].includes(evidence.observation.status)){
-      await this.p.observation.update({where:{id:evidence.observationId},data:{status:'WAITING'}});
-      await this.p.observationHistory.create({
-        data:{observationId:evidence.observationId,fromStatus:evidence.observation.status,toStatus:'WAITING',note:'Justificatif validé - en attente de clôture'}
-      });
-    }
+    // Every review decision is written in the observation history. A refusal sends the observation back to the
+    // company ("À relancer"); an approval never closes it: closing is a separate, explicit action.
+    const current=evidence.observation.status;
+    const name=evidence.document?.name||'justificatif';
+    const next=current==='RESOLVED'?current:status==='REJECTED'?'TO_RELAUNCH':['SENT','TO_RELAUNCH'].includes(current)?'WAITING':current;
+    if(next!==current)await this.p.observation.update({where:{id:evidence.observationId},data:{status:next}});
+    await this.p.observationHistory.create({
+      data:{observationId:evidence.observationId,fromStatus:current,toStatus:next,note:status==='APPROVED'?`Justificatif validé : ${name}`:`Justificatif refusé : ${name} — ${reason}`}
+    });
 
     await this.p.activityLog.create({
       data:{
@@ -72,7 +71,7 @@ export class EvidenceService{
         action:status==='APPROVED'?'Preuve validée':'Preuve refusée',
         entityType:'ObservationEvidence',
         entityId:id,
-        metadata:{observationId:evidence.observationId,note:note||null}
+        metadata:{observationId:evidence.observationId,note:reason||null,submittedByCompany:evidence.submittedByCompany}
       }
     });
     return updated;

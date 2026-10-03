@@ -1,11 +1,11 @@
-import {ConflictException,Injectable,Logger} from '@nestjs/common';
+import {ConflictException,Injectable,Logger,Optional} from '@nestjs/common';
 import {ConfigService} from '@nestjs/config';
 import {Cron,CronExpression} from '@nestjs/schedule';
 import {MailerService} from '../mailer/mailer.service';
 import {PrismaService} from '../prisma/prisma.service';
 import {REMINDER_COOLDOWN_MS,ReminderSettings,emailDecision,reminderReason,reminderSettings,sendingWindow,sentReminderDays,wasSent} from './reminder-rules';
 import {renderObservationEmail} from '../mailer/email-template';
-import {companyPortalCta} from '../mailer/portal-link';
+import {PortalService} from '../portal/portal.service';
 
 export type ScanTrigger='manual'|'auto';
 export type ScanOptions={trigger?:ScanTrigger;dryRun?:boolean;now?:Date};
@@ -24,7 +24,7 @@ const SKIP_KEY:Record<string,keyof ReturnType<typeof EMPTY_SKIPS>>={NEVER_SENT:'
 @Injectable()
 export class RemindersService{
   private readonly logger=new Logger(RemindersService.name);
-  constructor(private p:PrismaService,private config:ConfigService,private mailer:MailerService){}
+  constructor(private p:PrismaService,private config:ConfigService,private mailer:MailerService,@Optional() private portal?:PortalService){}
 
   @Cron(CronExpression.EVERY_HOUR)
   async scheduledScan(){
@@ -117,7 +117,7 @@ export class RemindersService{
     const sentThreshold=new Date(now.getTime()-sentDays*86400000);
     const found=await this.p.observation.findMany({
       where:{project:{organizationId},status:{not:'RESOLVED'},OR:[{dueDate:{lt:now}},{status:'WAITING',updatedAt:{lt:threshold}},...(sentDays>0?[{status:'SENT' as const,generatedEmails:{some:{sentAt:{lt:sentThreshold}}}}]:[])]},
-      include:{generatedEmails:true,project:{include:{organization:{select:{name:true}}}},company:true}
+      include:{generatedEmails:true,project:{include:{organization:{select:{name:true}}}},company:true,evidence:{select:{createdAt:true,submittedByCompany:true,reviewStatus:true,reviewedAt:true}},responses:{select:{createdAt:true}}}
     });
     // The query is a superset; reminderReason() is the single place that decides.
     const obs=found.map(o=>({o,reason:reminderReason(o,now,{reminderDays,sentReminderDays:sentDays})})).filter(x=>x.reason);
@@ -166,7 +166,7 @@ export class RemindersService{
         // Claim the email before sending: the cooldown test and the update are one statement, so two runs cannot both send.
         const claim=await this.p.generatedEmail.updateMany({where:{id:email.id,OR:[{lastRemindedAt:null},{lastRemindedAt:{lt:new Date(now.getTime()-REMINDER_COOLDOWN_MS)}}]},data:{lastRemindedAt:now,reminderCount:{increment:1}}});
         if(!claim.count){skipped.cooldown++;candidate.emails[candidate.emails.length-1].decision='COOLDOWN';continue}
-        try{await this.mailer.send({to:email.recipientEmail!,subject,automated:true,...renderObservationEmail({subject,body:email.body,projectName:o.project.name,observationTitle:o.title,reference:o.reference,organizationName:o.project.organization?.name,cta:await companyPortalCta(this.p,this.mailer,o.projectId,o.companyId),reminder:{level}})})}
+        try{await this.mailer.send({to:email.recipientEmail!,subject,automated:true,...renderObservationEmail({subject,body:email.body,projectName:o.project.name,observationTitle:o.title,reference:o.reference,organizationName:o.project.organization?.name,cta:(await this.portal?.emailLink(o.projectId,o.companyId))?.cta??null,reminder:{level}})})}
         catch(error:any){
           this.logger.error(`Reminder for email ${email.id} could not be sent: ${error?.message}`);
           // Nothing went out: give the claim back so the next run can retry.

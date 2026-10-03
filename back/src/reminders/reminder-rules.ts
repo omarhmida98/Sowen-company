@@ -7,7 +7,8 @@ const DAY_MS = 86400000;
 export type ReminderReason = 'OVERDUE' | 'STALE_WAITING' | 'STALE_SENT';
 
 export type ReminderEmail = { status: string; recipientEmail?: string | null; sentAt?: Date | null; lastRemindedAt?: Date | null };
-export type ReminderObservation = { status: string; dueDate?: Date | null; updatedAt: Date; generatedEmails: ReminderEmail[] };
+export type ReminderEvidence = { createdAt: Date; submittedByCompany: boolean; reviewStatus: string; reviewedAt?: Date | null };
+export type ReminderObservation = { status: string; dueDate?: Date | null; updatedAt: Date; generatedEmails: ReminderEmail[]; evidence?: ReminderEvidence[]; responses?: { createdAt: Date }[] };
 
 // SENT_REMINDER_AFTER_DAYS: days without a company response before a sent observation is followed up.
 // Empty or invalid falls back to the default; 0 turns this rule off.
@@ -35,8 +36,27 @@ export function lastCompanyContact(emails: ReminderEmail[]): Date | null {
   return latest;
 }
 
+const latest = (dates: (Date | null | undefined)[]) => dates.reduce<Date | null>((max, d) => (d && (!max || d > max) ? d : max), null);
+
+// Last time the company did something: a response, or a proof it sent.
+export function lastCompanyEngagement(o: ReminderObservation): Date | null {
+  return latest([...(o.responses || []).map(r => r.createdAt), ...(o.evidence || []).filter(e => e.submittedByCompany).map(e => e.createdAt)]);
+}
+
+// True when the company has answered and it is the project team's turn: nobody wrote to the company after its
+// answer, and its latest proof has not been refused since. Such an observation is not followed up.
+export function awaitingInternalReview(o: ReminderObservation): boolean {
+  const engagement = lastCompanyEngagement(o);
+  if (!engagement) return false;
+  const contact = lastCompanyContact(o.generatedEmails);
+  if (contact && contact > engagement) return false;
+  const refused = latest((o.evidence || []).filter(e => e.submittedByCompany && e.reviewStatus === 'REJECTED').map(e => e.reviewedAt));
+  return !(refused && refused >= engagement);
+}
+
 export function reminderReason(o: ReminderObservation, now: Date, settings: { reminderDays: number; sentReminderDays: number }): ReminderReason | null {
   if (o.status === 'RESOLVED') return null;
+  if (awaitingInternalReview(o)) return null;
   if (o.dueDate && o.dueDate < now) return 'OVERDUE';
   if (o.status === 'WAITING' && o.updatedAt.getTime() < now.getTime() - settings.reminderDays * DAY_MS) return 'STALE_WAITING';
   if (o.status === 'SENT' && settings.sentReminderDays > 0) {

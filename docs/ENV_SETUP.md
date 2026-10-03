@@ -23,7 +23,9 @@
 - `REMINDER_AUTOMATION_ENABLED` : `true` pour que le scan des relances tourne automatiquement chaque heure (planificateur interne et point d'entrée `POST /reminders/cron`).
 - `MAX_AUTOMATIC_REMINDERS` : nombre maximal de relances envoyées par le scan pour un même mail (3 par défaut, `0` pour ne jamais envoyer).
 - `REMINDER_TIMEZONE`, `REMINDER_START_HOUR`, `REMINDER_END_HOUR` : plage d'envoi des relances automatiques, du lundi au vendredi (`Europe/Paris`, de 8 h à 18 h par défaut). Le scan lancé manuellement par un administrateur n'est pas limité par cette plage.
-- `PUBLIC_APP_URL` : adresse publique de l'application web. Si elle est renseignée et que l'entreprise dispose déjà d'un accès portail actif pour le projet, les emails contiennent un bouton « Répondre / transmettre les justificatifs » ; sinon aucun lien n'est ajouté.
+- `PUBLIC_APP_URL` : adresse publique de l'application web. Lorsqu'elle est renseignée, les emails envoyés aux entreprises contiennent un bouton « Répondre dans SOWEN » vers leur portail (l'accès portail est créé à l'envoi s'il n'existe pas) et les invitations d'utilisateurs partent par email. Sans elle, aucun lien n'est ajouté aux emails : le lien est affiché à l'équipe, qui le transmet elle-même. Dès qu'elle est renseignée, `PORTAL_TOKEN_SECRET` devient obligatoire.
+- `PORTAL_TOKEN_SECRET` : secret qui signe les liens du portail entreprise. Voir « Portail entreprise » ci-dessous.
+- `PORTAL_ACCESS_TTL_DAYS` : durée de validité d'un accès portail, en jours (90 par défaut, `0` pour ne jamais expirer).
 - `DAILY_DIGEST_ENABLED` : `true` pour envoyer la synthèse quotidienne aux administrateurs et éditeurs ayant des notifications non lues.
 - `DAILY_DIGEST_TIMEZONE` : fuseau horaire de la synthèse (nom IANA, `Europe/Paris` par défaut). L'envoi a lieu à 08:00 dans ce fuseau, du lundi au vendredi, une seule fois par utilisateur et par jour.
 - `STORAGE_PROVIDER` : `local` (par défaut) ou `s3`. Voir « Preuves / documents » ci-dessous.
@@ -64,6 +66,15 @@ RESEND_API_KEY="..."
 RESEND_FROM="SOWEN <suivi@votre-domaine.fr>"
 ```
 Sans ces variables, les brouillons restent dans SOWEN et le scanner d'échéances marque les points à relancer sans envoyer de mail.
+
+### Portail entreprise
+Chaque entreprise reçoit un lien personnel vers son portail (réponse, dépôt de justificatifs). Ce lien n'est pas stocké en base : il est composé de l'identifiant de l'accès et d'une signature calculée avec `PORTAL_TOKEN_SECRET`.
+
+- `PORTAL_TOKEN_SECRET` est un secret à part, **indépendant des secrets JWT** : changer `JWT_ACCESS_SECRET` ou `JWT_REFRESH_SECRET` ne modifie pas les liens portail.
+- Valeur : chaîne aléatoire d'au moins 24 caractères, différente des deux secrets JWT (par exemple `openssl rand -base64 48`). Elle n'est jamais affichée dans l'interface, les journaux ni l'historique.
+- **Production** : obligatoire lorsque `NODE_ENV="production"` ou dès que `PUBLIC_APP_URL` est renseignée. Sans lui, l'API refuse de démarrer avec un message explicite.
+- **Développement local** (ni `NODE_ENV="production"` ni `PUBLIC_APP_URL`) : s'il est vide, une clé de développement dérivée de `JWT_ACCESS_SECRET` est utilisée et un avertissement est écrit au démarrage. Ce repli n'existe pas en production.
+- **Rotation** : changer `PORTAL_TOKEN_SECRET` invalide immédiatement tous les liens portail déjà envoyés. Les accès restent en base ; il suffit de régénérer l'accès (ou de renvoyer l'observation) pour transmettre un nouveau lien. Renseigner le secret pour la première fois sur une installation qui utilisait la clé de développement a le même effet.
 
 ### Preuves / documents
 Tous les fichiers (documents, justificatifs, dépôts du portail entreprise, rapports) passent par un service de stockage unique. La base de données ne contient qu'une clé relative (`<projet>/reports/<fichier>`), jamais un chemin absolu ni une URL.

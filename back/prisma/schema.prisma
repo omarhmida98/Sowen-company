@@ -407,12 +407,37 @@ model Observation {
   reviewedById    String?
   // Set the first time a person edits the content of the observation.
   editedAt        DateTime?
+  // Explicit closure by an administrator or editor (see ObservationsService.close). Cleared when reopened.
+  closedAt        DateTime?
+  closedById      String?
+  closureNote     String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   assignments     ObservationAssignment[]
   history         ObservationHistory[]
   generatedEmails GeneratedEmail[]
   evidence         ObservationEvidence[]
+  responses        ObservationResponse[]
+}
+
+enum ResponseSource {
+  PORTAL   // written by the company on its portal
+  INTERNAL // recorded by a SOWEN user (answer received by phone, email…)
+}
+
+// What a company answered about an observation. Never edited or deleted: it is part of the record.
+model ObservationResponse {
+  id             String         @id @default(uuid())
+  observationId  String
+  observation    Observation    @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  source         ResponseSource
+  message        String
+  companyId      String?
+  portalAccessId String?
+  userId         String?
+  createdAt      DateTime       @default(now())
+
+  @@index([observationId, createdAt])
 }
 
 model ObservationAssignment {
@@ -526,9 +551,11 @@ model CompanyPortalAccess {
   id        String   @id @default(uuid())
   companyId String
   projectId String
-  token     String   @unique @default(uuid())
+  // No token is stored: the link is the access id signed by the server (see portal-tokens.ts).
   expiresAt DateTime?
   revokedAt DateTime?
+  createdById String?
+  revokedById String?
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())

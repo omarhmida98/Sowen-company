@@ -40,6 +40,8 @@ function database(seed: { observations?: Row[]; emails?: Row[]; history?: Row[];
     lot: db.lots.find(l => l.id === o.lotId) || null,
     generatedEmails: db.emails.filter(e => e.observationId === o.id),
     history: db.history.filter(h => h.observationId === o.id),
+    responses: [],
+    closedById: o.closedById ?? null,
     _count: { evidence: db.evidence.filter(e => e.observationId === o.id).length, history: db.history.filter(h => h.observationId === o.id).length, assignments: 0 },
   });
   const prisma = {
@@ -73,6 +75,7 @@ function database(seed: { observations?: Row[]; emails?: Row[]; history?: Row[];
     },
     lot: { findUnique: async ({ where }: any) => db.lots.find(l => l.id === where.id) || null, findMany: async ({ where }: any) => db.lots.filter(l => where.id.in.includes(l.id)), findFirst: async () => null },
     projectLot: { findUnique: async () => null },
+    user: { findMany: async () => [] },
     project: { findUnique: async ({ where }: any) => structuredClone(project(where.id) || null) },
     controlReport: {
       findFirst: async ({ where }: any) => { const r = db.reports.find(x => x.id === where.id && project(x.projectId).organizationId === where.project.organizationId); return r ? structuredClone(r) : null; },

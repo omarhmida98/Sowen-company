@@ -1,8 +1,0 @@
-'use client';
-import {useState} from 'react';
-import {MessageSquareText} from 'lucide-react';
-export function PortalResponseBox({token,observationId}:{token:string;observationId:string}){
-  const [note,setNote]=useState(''),[busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[isErr,setIsErr]=useState(false);
-  async function send(){if(!note.trim())return;setBusy(true);setMsg('');setIsErr(false);try{const base=process.env.NEXT_PUBLIC_API_URL??'http://localhost:4000/api';const res=await fetch(`${base}/portal/${encodeURIComponent(token)}/response`,{method:'POST',headers:{'Content-Type':'application/json','ngrok-skip-browser-warning':'true'},body:JSON.stringify({observationId,note})});if(!res.ok){console.error('[SOWEN] envoi réponse échoué:',res.status,await res.text());setMsg('L’envoi a échoué. Réessayez dans un instant.');setIsErr(true);return}setNote('');setMsg('Réponse transmise à l’équipe projet.');setIsErr(false)}catch(e:any){console.error('[SOWEN] envoi réponse échoué:',e);setMsg('L’envoi a échoué. Réessayez dans un instant.');setIsErr(true)}finally{setBusy(false)}}
-  return <div className="card"><h3>Répondre à l’équipe projet</h3><p className="muted">Ajoutez une explication, une date prévue d’intervention ou toute information utile.</p><textarea rows={4} value={note} onChange={e=>setNote(e.target.value)} placeholder="Votre réponse…"/><button className="btn" onClick={send} disabled={busy||!note.trim()}><MessageSquareText size={16}/>{busy?'Envoi…':'Envoyer la réponse'}</button>{msg&&<div className={isErr?'notice error':'notice'} style={{marginTop:10}}>{msg}</div>}</div>
-}

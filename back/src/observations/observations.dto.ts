@@ -1,5 +1,5 @@
 import { ObservationStatus, Severity } from '@prisma/client';
-import { IsDateString, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
 
 export class CreateObservationDto {
   @IsString() projectId!: string;
@@ -27,6 +27,16 @@ export class UpdateObservationDto {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString() dueDate?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() companyId?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() lotId?: string | null;
+}
+
+export class AddResponseDto {
+  @IsString() @MinLength(1) @MaxLength(4000) message!: string;
+}
+
+export class CloseObservationDto {
+  // Required when no proof has been approved: closing without proof is a deliberate decision.
+  @IsOptional() @IsBoolean() confirmWithoutProof?: boolean;
+  @IsOptional() @IsString() @MaxLength(1000) note?: string;
 }
 
 export class ReviewObservationDto {

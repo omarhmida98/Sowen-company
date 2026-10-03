@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ObservationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AssignObservationDto, CreateObservationDto, ReviewObservationDto, TransitionObservationDto, UpdateObservationDto } from './observations.dto';
+import { AddResponseDto, AssignObservationDto, CloseObservationDto, CreateObservationDto, ReviewObservationDto, TransitionObservationDto, UpdateObservationDto } from './observations.dto';
 import { EDITABLE_FIELDS, describeChanges, diffObservation } from './observation-rules';
 
 const ALLOWED_TRANSITIONS: Record<ObservationStatus, ObservationStatus[]> = {
@@ -40,13 +40,18 @@ export class ObservationsService {
         company: true,
         report: true,
         history: { orderBy: { createdAt: 'desc' } },
+        responses: { orderBy: { createdAt: 'desc' } },
         assignments: { include: { user: { select: { id: true, displayName: true, email: true, role: true } } } },
         generatedEmails: { orderBy: { createdAt: 'desc' } },
         evidence: { include: { document: true }, orderBy: { createdAt: 'desc' } },
       },
     });
     if (!row) throw new NotFoundException('Observation not found');
-    return row;
+    // Names of the people referred to by id: who recorded a response, who closed the observation.
+    const ids = [...new Set([row.closedById, ...row.responses.map(r => r.userId)].filter((v): v is string => !!v))];
+    const names: Record<string, string> = {};
+    for (const u of ids.length ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true, email: true } }) : []) names[u.id] = u.displayName || u.email;
+    return { ...row, closedBy: row.closedById ? names[row.closedById] || null : null, responses: row.responses.map(r => ({ ...r, author: r.userId ? names[r.userId] || null : null })) };
   }
 
   private async assertCompanyOwned(companyId: string | undefined, organizationId: string) {
@@ -186,18 +191,57 @@ export class ObservationsService {
     return this.get(id, organizationId);
   }
 
+  // A response of the company recorded by the team (received by phone, email, on site…). Like a portal response it
+  // is kept as is and puts the observation in "En attente".
+  async addResponse(id: string, dto: AddResponseDto, organizationId: string, userId: string) {
+    const current = await this.prisma.observation.findFirst({ where: { id, project: { organizationId } } });
+    if (!current) throw new NotFoundException('Observation not found');
+    if (current.status === 'RESOLVED') throw new BadRequestException('Cette observation est clôturée. Rouvrez-la pour enregistrer une réponse.');
+    const message = dto.message.trim();
+    if (!message) throw new BadRequestException('Le message est obligatoire.');
+    await this.prisma.observationResponse.create({ data: { observationId: id, source: 'INTERNAL', message, companyId: current.companyId, userId } });
+    const next = ['SENT', 'TO_RELAUNCH'].includes(current.status) ? 'WAITING' : current.status;
+    if (next !== current.status) await this.prisma.observation.update({ where: { id }, data: { status: 'WAITING' } });
+    await this.prisma.observationHistory.create({ data: { observationId: id, fromStatus: current.status, toStatus: next, note: 'Réponse de l’entreprise saisie par l’équipe' } });
+    await this.prisma.activityLog.create({ data: { projectId: current.projectId, userId, action: 'Réponse entreprise saisie par l’équipe', entityType: 'Observation', entityId: id } });
+    return this.get(id, organizationId);
+  }
+
+  // Closing is an explicit decision of an administrator or editor. It needs at least one approved proof, or a
+  // confirmation that no proof is required. Proofs still waiting for review must be reviewed first. Responses,
+  // proofs and history stay attached to the closed observation.
+  async close(id: string, dto: CloseObservationDto, organizationId: string, userId: string) {
+    const current = await this.prisma.observation.findFirst({ where: { id, project: { organizationId } }, include: { evidence: { select: { reviewStatus: true } } } });
+    if (!current) throw new NotFoundException('Observation not found');
+    if (current.reviewStatus === 'REJECTED') throw new BadRequestException('Cette observation IA a été rejetée : elle n’a pas à être clôturée.');
+    if (current.status === 'RESOLVED') throw new BadRequestException('Cette observation est déjà clôturée.');
+    const approved = current.evidence.filter(e => e.reviewStatus === 'APPROVED').length;
+    const pending = current.evidence.filter(e => e.reviewStatus === 'PENDING').length;
+    if (pending) throw new BadRequestException(`${pending} justificatif(s) attendent encore votre décision. Validez-les ou refusez-les avant de clôturer.`);
+    if (!approved && dto.confirmWithoutProof !== true) throw new BadRequestException('Aucun justificatif n’a été validé. Confirmez la clôture sans justificatif pour continuer.');
+    const note = dto.note?.trim() || null;
+    const now = new Date();
+    await this.prisma.observation.update({ where: { id }, data: { status: 'RESOLVED', closedAt: now, closedById: userId, closureNote: note } });
+    await this.prisma.observationHistory.create({ data: { observationId: id, fromStatus: current.status, toStatus: 'RESOLVED', note: `${approved ? `Observation clôturée (${approved} justificatif(s) validé(s))` : 'Observation clôturée sans justificatif'}${note ? ` — ${note}` : ''}` } });
+    await this.prisma.activityLog.create({ data: { projectId: current.projectId, userId, action: 'Observation clôturée', entityType: 'Observation', entityId: id, metadata: { approvedEvidence: approved, withoutProof: !approved, note } } });
+    return this.get(id, organizationId);
+  }
+
   async transition(id: string, dto: TransitionObservationDto, organizationId: string, userId: string) {
     const current = await this.prisma.observation.findUnique({ where: { id }, include: { project: true } });
     if (!current) throw new NotFoundException('Observation not found');
     if (current.project.organizationId !== organizationId) throw new ForbiddenException('Observation does not belong to your organization');
     if (dto.status === current.status) return current;
     if (current.reviewStatus === 'REJECTED') throw new BadRequestException('Cette observation IA a été rejetée. Rétablissez-la avant de modifier son statut.');
+    // Closing has its own rule (see close()); a plain status change cannot bypass it.
+    if (dto.status === 'RESOLVED') throw new BadRequestException('Utilisez l’action « Clôturer l’observation » : la clôture demande un justificatif validé ou une confirmation.');
     if (!ALLOWED_TRANSITIONS[current.status].includes(dto.status)) {
       throw new BadRequestException(`Transition ${current.status} → ${dto.status} non autorisée`);
     }
 
     if (dto.status === 'TO_SEND') await this.ensureDraft(id);
-    const updated = await this.prisma.observation.update({ where: { id }, data: { status: dto.status } });
+    // Reopening forgets the closure; the history keeps the trace of it.
+    const updated = await this.prisma.observation.update({ where: { id }, data: { status: dto.status, ...(current.status === 'RESOLVED' ? { closedAt: null, closedById: null, closureNote: null } : {}) } });
     await this.prisma.observationHistory.create({
       data: { observationId: id, fromStatus: current.status, toStatus: dto.status, note: dto.note || null },
     });
@@ -205,7 +249,7 @@ export class ObservationsService {
       data: {
         projectId: current.projectId,
         userId,
-        action: dto.status === 'RESOLVED' ? 'Observation clôturée' : dto.status === 'OPEN' && current.status === 'RESOLVED' ? 'Observation rouverte' : `Observation passée à ${dto.status}`,
+        action: dto.status === 'OPEN' && current.status === 'RESOLVED' ? 'Observation rouverte' : `Observation passée à ${dto.status}`,
         entityType: 'Observation',
         entityId: id,
         metadata: dto.note ? { note: dto.note } : undefined,

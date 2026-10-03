@@ -1,3 +1,5 @@
+import { PORTAL_SECRET_MIN_LENGTH, portalSecretRequired } from './portal/portal-tokens';
+
 const REQUIRED = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const;
 
 export function validateEnvironment(config: Record<string, unknown>) {
@@ -13,6 +15,15 @@ export function validateEnvironment(config: Record<string, unknown>) {
   }
   if (access === refresh) {
     throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different.');
+  }
+
+  // Company portal links are signed with their own secret, separate from the JWT secrets.
+  const portal = String(config.PORTAL_TOKEN_SECRET ?? '').trim();
+  if (portal) {
+    if (portal.length < PORTAL_SECRET_MIN_LENGTH) throw new Error(`PORTAL_TOKEN_SECRET must contain at least ${PORTAL_SECRET_MIN_LENGTH} characters.`);
+    if (portal === access || portal === refresh) throw new Error('PORTAL_TOKEN_SECRET must be different from JWT_ACCESS_SECRET and JWT_REFRESH_SECRET.');
+  } else if (portalSecretRequired(config)) {
+    throw new Error('PORTAL_TOKEN_SECRET must be configured: company portal links are signed with it. It is required when NODE_ENV="production" or when PUBLIC_APP_URL is set (portal links are then emailed to companies). Generate a random value of at least 24 characters, different from the JWT secrets.');
   }
 
   const apiPort = Number(config.API_PORT ?? 4000);

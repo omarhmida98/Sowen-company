@@ -1,7 +1,7 @@
 import { EvidenceReviewStatus } from '@prisma/client';
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ReviewEvidenceDto {
   @IsEnum(EvidenceReviewStatus) status!: EvidenceReviewStatus;
-  @IsOptional() @IsString() note?: string;
+  @IsOptional() @IsString() @MaxLength(1000) note?: string;
 }

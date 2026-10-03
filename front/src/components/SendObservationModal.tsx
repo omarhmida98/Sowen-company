@@ -10,7 +10,7 @@ const fmt=(d?:string|null)=>d?new Intl.DateTimeFormat('fr-FR').format(new Date(d
 const SEARCH_THRESHOLD=8;
 
 type Props={observationId:string;onClose:()=>void;onChanged:()=>void};
-type Sent={companyName:string;recipient:string;sentAt:string;projectId:string};
+type Sent={companyName:string;recipient:string;sentAt:string;projectId:string;portal?:{inEmail:boolean;link:string|null}};
 
 export function SendObservationModal({observationId,onClose,onChanged}:Props){
   const [ctx,setCtx]=useState<ApiSendContext|null>(null);
@@ -24,6 +24,7 @@ export function SendObservationModal({observationId,onClose,onChanged}:Props){
   const [msg,setMsg]=useState('');
   const [isErr,setIsErr]=useState(false);
   const [sent,setSent]=useState<Sent|null>(null);
+  const [linkCopied,setLinkCopied]=useState(false);
   // Guards against a second submit before React has re-rendered the disabled button.
   const inFlight=useRef(false);
 
@@ -70,8 +71,8 @@ export function SendObservationModal({observationId,onClose,onChanged}:Props){
         await api(`/emails/observation/${observationId}/draft`,{method:'PUT',body:JSON.stringify(payload)});
         setMsg('Brouillon enregistré.');setEdited(false);onChanged();
       }else{
-        const r=await api<{email:{sentAt:string;recipientEmail:string;projectId:string};company:{name:string;email:string}}>(`/emails/observation/${observationId}/send`,{method:'POST',body:JSON.stringify({...payload,allowResend:alreadySentToCompany})});
-        setSent({companyName:r.company.name,recipient:r.email.recipientEmail,sentAt:r.email.sentAt,projectId:r.email.projectId});onChanged();
+        const r=await api<{email:{sentAt:string;recipientEmail:string;projectId:string};company:{name:string;email:string};portal?:{inEmail:boolean;link:string|null}}>(`/emails/observation/${observationId}/send`,{method:'POST',body:JSON.stringify({...payload,allowResend:alreadySentToCompany})});
+        setSent({companyName:r.company.name,recipient:r.email.recipientEmail,sentAt:r.email.sentAt,projectId:r.email.projectId,portal:r.portal});onChanged();
       }
     }catch(e:any){setMsg(e.message);setIsErr(true);if(kind==='send')load(company.id,true)}
     finally{inFlight.current=false;setBusy(null)}
@@ -95,6 +96,8 @@ export function SendObservationModal({observationId,onClose,onChanged}:Props){
         <CheckCircle2 size={34}/>
         <h3>Mail envoyé</h3>
         <p><span>Envoyé à</span> <strong>{sent.companyName}</strong> ({sent.recipient}) <span>le</span> {fmt(sent.sentAt)}</p>
+        {sent.portal?.inEmail&&<p className="portal-note" data-portal="in-email">Le mail contient le bouton « Répondre dans SOWEN » : l’entreprise peut répondre et envoyer ses justificatifs en ligne.</p>}
+        {sent.portal&&!sent.portal.inEmail&&sent.portal.link&&<div className="notice warning portal-note" data-portal="link-only"><span>Le mail ne contient pas de lien vers le portail : l’adresse publique de SOWEN n’est pas configurée. Transmettez ce lien à l’entreprise si besoin.</span><div className="actions" style={{width:'100%'}}><input readOnly value={sent.portal.link} aria-label="Lien du portail" onFocus={e=>e.currentTarget.select()} style={{flex:1,minWidth:0}}/><button type="button" className="btn secondary compact" onClick={()=>{navigator.clipboard?.writeText(sent.portal!.link!).then(()=>setLinkCopied(true)).catch(()=>{})}}>{linkCopied?'Copié':'Copier le lien'}</button></div></div>}
         <p className="muted">Le message est disponible dans Mails & relances et peut être relancé depuis l’observation.</p>
         <div className="wizard-actions">
           <Link className="btn secondary" href={`/projects/${sent.projectId}/mails`}>Voir dans Mails & relances</Link>
