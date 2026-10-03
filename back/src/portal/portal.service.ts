@@ -1,10 +1,9 @@
 import {ForbiddenException,Injectable,NotFoundException} from '@nestjs/common';
-import {promises as fs} from 'fs';
-import path from 'path';
 import {PrismaService} from '../prisma/prisma.service';
+import {StorageService} from '../storage/storage.service';
 @Injectable()
 export class PortalService{
-  constructor(private p:PrismaService){}
+  constructor(private p:PrismaService,private storage:StorageService){}
   async create(companyId:string,projectId:string,expiresAt:string|undefined,organizationId:string,userId:string){
     const [company,project,link]=await Promise.all([
       this.p.company.findUnique({where:{id:companyId},select:{organizationId:true}}),
@@ -36,8 +35,12 @@ export class PortalService{
   async uploadEvidence(token:string,observationId:string,type:any,note:string|undefined,file:Express.Multer.File){
     const access=await this.access(token);
     const obs=await this.p.observation.findFirst({where:{id:observationId,projectId:access.projectId,companyId:access.companyId}});if(!obs)throw new ForbiddenException('Observation is not available for this company portal');
-    const dir=path.resolve(process.cwd(),'uploads',obs.projectId,'evidence');await fs.mkdir(dir,{recursive:true});const safe=`${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g,'_')}`;const full=path.join(dir,safe);await fs.writeFile(full,file.buffer);
-    const doc=await this.p.document.create({data:{projectId:obs.projectId,type:'EVIDENCE',name:file.originalname,storageKey:full,mimeType:file.mimetype,sizeBytes:file.size}});const ev=await this.p.observationEvidence.create({data:{observationId,documentId:doc.id,type,note:note||null,submittedByCompany:true},include:{document:true}});
+    const storageKey=await this.storage.save({projectId:obs.projectId,folder:'evidence',originalName:file.originalname,buffer:file.buffer,contentType:file.mimetype});
+    let ev;
+    try{
+      const doc=await this.p.document.create({data:{projectId:obs.projectId,type:'EVIDENCE',name:file.originalname,storageKey,mimeType:file.mimetype,sizeBytes:file.size}});
+      ev=await this.p.observationEvidence.create({data:{observationId,documentId:doc.id,type,note:note||null,submittedByCompany:true},include:{document:true}});
+    }catch(error){await this.storage.remove(storageKey);throw error}
     if(obs.status!=='RESOLVED'&&obs.status!=='WAITING'){await this.p.observation.update({where:{id:obs.id},data:{status:'WAITING'}});await this.p.observationHistory.create({data:{observationId:obs.id,fromStatus:obs.status,toStatus:'WAITING',note:'Justificatif reçu via portail entreprise'}});}
     await this.p.activityLog.create({data:{projectId:obs.projectId,action:`Preuve ajoutée via portail (${access.company.name})`,entityType:'ObservationEvidence',entityId:ev.id}});return ev;
   }

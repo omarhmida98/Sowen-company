@@ -1,9 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, StreamableFile } from '@nestjs/common';
 import pdf from 'pdf-parse';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { StorageService } from '../storage/storage.service';
 import { REPORT_ANALYSIS_SCHEMA, REPORT_ANALYSIS_SYSTEM, VALID_SEVERITIES, documentAnalysisOf, validateReportAnalysis } from './report-analysis';
 
 const AUTO_ACTION_CONFIDENCE = 0.75;
@@ -26,7 +25,7 @@ async function renderPageWithMarker(pageData: any): Promise<string> {
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
 
-  constructor(private prisma: PrismaService, private ai: AiService) {}
+  constructor(private prisma: PrismaService, private ai: AiService, private storage: StorageService) {}
 
   list(organizationId: string, projectId?: string) {
     return this.prisma.controlReport.findMany({
@@ -41,7 +40,7 @@ export class ReportsService {
       where: { id: reportId, project: { organizationId } },
       include: {
         project: { select: { id: true, name: true, buildingType: true, status: true } },
-        document: { select: { id: true, name: true, storageKey: true, mimeType: true, sizeBytes: true, uploadedAt: true } },
+        document: { select: { id: true, name: true, mimeType: true, sizeBytes: true, uploadedAt: true } },
         observations: {
           include: { lot: true, company: true },
           orderBy: { createdAt: 'asc' },
@@ -87,16 +86,17 @@ export class ReportsService {
   async downloadFile(reportId: string, organizationId: string) {
     const report = await this.prisma.controlReport.findFirst({
       where: { id: reportId, project: { organizationId } },
-      include: { document: true },
+      select: { document: { select: { name: true, mimeType: true, storageKey: true } } },
     });
     if (!report) throw new NotFoundException('Report not found');
     const storageKey = report.document?.storageKey;
     if (!storageKey) throw new NotFoundException('Report file not found');
     let buffer: Buffer;
     try {
-      buffer = await fs.readFile(storageKey);
-    } catch {
-      throw new NotFoundException('Report file not found');
+      buffer = await this.storage.read(storageKey);
+    } catch (error) {
+      if (error instanceof NotFoundException) throw new NotFoundException('Report file not found');
+      throw error;
     }
     return new StreamableFile(buffer, {
       type: report.document?.mimeType || 'application/pdf',
@@ -128,12 +128,8 @@ export class ReportsService {
       throw new BadRequestException('Only PDF reports are supported');
     }
 
-    const dir = path.resolve(process.cwd(), 'uploads', projectId, 'reports');
-    await fs.mkdir(dir, { recursive: true });
-    const safe = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const full = path.join(dir, safe);
-    await fs.writeFile(full, file.buffer);
-    this.logger.log(`Report file stored at ${full} (${file.size} bytes)`);
+    const storageKey = await this.storage.save({ projectId, folder: 'reports', originalName: file.originalname, buffer: file.buffer, contentType: file.mimetype });
+    this.logger.log(`Report file stored as ${storageKey} (${file.size} bytes)`);
 
     let parsedText = '';
     let pdfError: string | null = null;
@@ -146,11 +142,11 @@ export class ReportsService {
       }
     } catch (error: any) {
       pdfError = typeof error?.message === 'string' && error.message.trim() ? error.message : 'PDF text extraction failed';
-      this.logger.error(`PDF extraction failed for ${full}: ${error?.stack || pdfError}`);
+      this.logger.error(`PDF extraction failed for ${storageKey}: ${error?.stack || pdfError}`);
     }
 
     const document = await this.prisma.document.create({
-      data: { projectId, type: 'CONTROL_REPORT', name: file.originalname, storageKey: full, mimeType: file.mimetype, sizeBytes: file.size },
+      data: { projectId, type: 'CONTROL_REPORT', name: file.originalname, storageKey, mimeType: file.mimetype, sizeBytes: file.size },
     });
     const analysisStatus = pdfError ? 'FAILED' : this.ai.isConfigured() ? 'PROCESSING' : 'PENDING';
     const report = await this.prisma.controlReport.create({

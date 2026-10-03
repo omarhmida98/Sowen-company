@@ -1,12 +1,12 @@
 import {BadRequestException,ForbiddenException,Injectable,NotFoundException} from '@nestjs/common';
 import {EvidenceReviewStatus} from '@prisma/client';
-import {promises as fs} from 'fs';
-import path from 'path';
 import {PrismaService} from '../prisma/prisma.service';
+import {StorageService} from '../storage/storage.service';
+import {fileResponse} from '../documents/documents.service';
 
 @Injectable()
 export class EvidenceService{
-  constructor(private p:PrismaService){}
+  constructor(private p:PrismaService,private storage:StorageService){}
 
   list(observationId:string,organizationId:string){
     return this.p.observationEvidence.findMany({
@@ -20,15 +20,21 @@ export class EvidenceService{
     const obs=await this.p.observation.findUnique({where:{id:observationId},include:{project:true}});
     if(!obs)throw new NotFoundException('Observation not found');
     if(obs.project.organizationId!==organizationId)throw new ForbiddenException('Observation does not belong to your organization');
-    const dir=path.resolve(process.cwd(),'uploads',obs.projectId,'evidence');
-    await fs.mkdir(dir,{recursive:true});
-    const safe=`${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
-    const full=path.join(dir,safe);
-    await fs.writeFile(full,file.buffer);
-    const doc=await this.p.document.create({data:{projectId:obs.projectId,type:'EVIDENCE',name:file.originalname,storageKey:full,mimeType:file.mimetype,sizeBytes:file.size}});
-    const ev=await this.p.observationEvidence.create({data:{observationId,documentId:doc.id,type,note:note||null,submittedByCompany:false},include:{document:true}});
+    const storageKey=await this.storage.save({projectId:obs.projectId,folder:'evidence',originalName:file.originalname,buffer:file.buffer,contentType:file.mimetype});
+    let ev;
+    try{
+      const doc=await this.p.document.create({data:{projectId:obs.projectId,type:'EVIDENCE',name:file.originalname,storageKey,mimeType:file.mimetype,sizeBytes:file.size}});
+      ev=await this.p.observationEvidence.create({data:{observationId,documentId:doc.id,type,note:note||null,submittedByCompany:false},include:{document:true}});
+    }catch(error){await this.storage.remove(storageKey);throw error}
     await this.p.activityLog.create({data:{projectId:obs.projectId,userId,action:'Preuve ajoutée',entityType:'ObservationEvidence',entityId:ev.id}});
     return ev
+  }
+
+  // The evidence must belong to the caller's organization; anything else is "not found".
+  async download(id:string,organizationId:string){
+    const evidence=await this.p.observationEvidence.findFirst({where:{id,observation:{project:{organizationId}}},select:{document:{select:{name:true,mimeType:true,storageKey:true}}}});
+    if(!evidence?.document)throw new NotFoundException('Fichier introuvable');
+    return fileResponse(await this.storage.read(evidence.document.storageKey),evidence.document.name,evidence.document.mimeType);
   }
 
   async review(id:string,status:EvidenceReviewStatus,note:string|undefined,organizationId:string,userId:string){

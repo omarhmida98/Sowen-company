@@ -2,6 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
+import { StorageService } from '../storage/storage.service';
 
 @Controller('system')
 export class SystemController {
@@ -9,6 +10,7 @@ export class SystemController {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly mailer: MailerService,
+    private readonly storage: StorageService,
   ) {}
 
   @Get('status')
@@ -30,11 +32,8 @@ export class SystemController {
       email: this.mailer.isConfigured(),
       emailProvider: this.mailer.provider(),
       emailSender: this.mailer.sender(),
-      storage: Boolean(
-        this.config.get('S3_BUCKET') &&
-        this.config.get('S3_ACCESS_KEY_ID') &&
-        this.config.get('S3_SECRET_ACCESS_KEY'),
-      ),
+      // What is really in use: provider, whether it works, and why not when it does not.
+      storage: await this.storage.status(),
       automation: this.config.get('REMINDER_AUTOMATION_ENABLED') === 'true',
       digest: this.config.get('DAILY_DIGEST_ENABLED') === 'true',
     };

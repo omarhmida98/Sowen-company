@@ -1,8 +1,8 @@
 'use client';
 
 import {useEffect,useState} from 'react';
-import {Camera,CheckCircle2,FileCheck2,XCircle} from 'lucide-react';
-import {api,statusLabel,docTypeLabel} from '@/lib/api';
+import {Camera,CheckCircle2,DownloadCloud,FileCheck2,XCircle} from 'lucide-react';
+import {api,downloadFile,statusLabel,docTypeLabel} from '@/lib/api';
 
 type E={
   id:string;type:string;note?:string|null;createdAt:string;reviewStatus?:'PENDING'|'APPROVED'|'REJECTED';reviewNote?:string|null;submittedByCompany?:boolean;
@@ -32,6 +32,8 @@ export function EvidenceManager({observationId}:{observationId:string}){
     }catch(e:any){setMsg(e.message);setIsErr(true)}finally{setBusy(false)}
   }
 
+  async function download(r:E){setMsg('');try{await downloadFile(`/evidence/${r.id}/file`,r.document?.name||'justificatif')}catch(e:any){setMsg(e.message);setIsErr(true)}}
+
   return <div className="card">
     <div className="section-head"><div><h3>Preuves & justificatifs</h3><p className="muted">Photos avant/après, PV, certificats, fiches techniques et notes vocales.</p></div></div>
     <div className="form-grid">
@@ -46,6 +48,7 @@ export function EvidenceManager({observationId}:{observationId:string}){
       {rows.map(r=><div className="integration" key={r.id}>
         <div className="actions"><FileCheck2 size={17}/><div><strong>{r.document?.name||docTypeLabel(r.type)}</strong><p>{docTypeLabel(r.type)}{r.note?` · ${r.note}`:''}{r.submittedByCompany?' · envoyé par l’entreprise':''}</p>{r.reviewNote&&<p className="muted">Avis : {r.reviewNote}</p>}</div></div>
         <div className="actions">
+          {r.document&&<button className="icon-btn" title="Télécharger" aria-label="Télécharger" onClick={()=>download(r)}><DownloadCloud size={16}/></button>}
           <span className={`badge ${r.reviewStatus==='APPROVED'?'green':r.reviewStatus==='REJECTED'?'red':'yellow'}`}>{statusLabel(r.reviewStatus)}</span>
           {(r.reviewStatus||'PENDING')==='PENDING'&&<><button className="icon-btn" disabled={busy} title="Valider" onClick={()=>review(r.id,'APPROVED')}><CheckCircle2 size={16}/></button><button className="icon-btn" disabled={busy} title="Refuser" onClick={()=>review(r.id,'REJECTED')}><XCircle size={16}/></button></>}
         </div>

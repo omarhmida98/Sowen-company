@@ -66,6 +66,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .report-row{cursor:pointer;transition:border-color .15s,box-shadow .15s}
 .report-row:hover{border-color:#b9c6d8;box-shadow:0 6px 18px rgba(15,30,60,.08)}
 html[data-theme="dark"] .report-row:hover{border-color:#3d5573;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.doc-actions{display:flex;gap:6px;margin-left:auto;align-self:flex-start}
 /* Send-observation modal */
 .notice.warning{background:#fff7e6;color:#8a5a00;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
 .notice .text-link{font-size:inherit}

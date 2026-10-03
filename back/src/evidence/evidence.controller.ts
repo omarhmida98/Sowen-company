@@ -20,6 +20,9 @@ export class EvidenceController{
     return this.s.upload(id,type,note,file,user.organizationId,user.sub)
   }
 
+  @Get(':id/file')
+  download(@Param('id')id:string,@CurrentUser()user:AuthUser){return this.s.download(id,user.organizationId)}
+
   @Roles('ADMIN','EDITOR') @Patch(':id/review')
   review(@Param('id')id:string,@Body()dto:ReviewEvidenceDto,@CurrentUser()user:AuthUser){
     return this.s.review(id,dto.status,dto.note,user.organizationId,user.sub)

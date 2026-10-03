@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Controller, Delete, Get, Param, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentsService } from './documents.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -16,4 +16,6 @@ export class DocumentsController {
     if (!projectId) throw new BadRequestException('projectId is required');
     return this.service.upload(projectId, type, file, user.organizationId, user.sub);
   }
+  @Get(':id/file') download(@Param('id') id: string, @CurrentUser() user: AuthUser) { return this.service.download(id, user.organizationId); }
+  @Roles('ADMIN','EDITOR') @Delete(':id') remove(@Param('id') id: string, @CurrentUser() user: AuthUser) { return this.service.remove(id, user.organizationId, user.sub); }
 }

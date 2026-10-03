@@ -26,7 +26,8 @@
 - `PUBLIC_APP_URL` : adresse publique de l'application web. Si elle est renseignée et que l'entreprise dispose déjà d'un accès portail actif pour le projet, les emails contiennent un bouton « Répondre / transmettre les justificatifs » ; sinon aucun lien n'est ajouté.
 - `DAILY_DIGEST_ENABLED` : `true` pour envoyer la synthèse quotidienne aux administrateurs et éditeurs ayant des notifications non lues.
 - `DAILY_DIGEST_TIMEZONE` : fuseau horaire de la synthèse (nom IANA, `Europe/Paris` par défaut). L'envoi a lieu à 08:00 dans ce fuseau, du lundi au vendredi, une seule fois par utilisateur et par jour.
-- variables `S3_*` : réservées au stockage objet de production.
+- `STORAGE_PROVIDER` : `local` (par défaut) ou `s3`. Voir « Preuves / documents » ci-dessous.
+- `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` : utilisés uniquement lorsque `STORAGE_PROVIDER="s3"`.
 
 Les secrets JWT ne sont pas récupérés auprès d'un fournisseur : ils doivent être générés par l'administrateur.
 
@@ -65,4 +66,26 @@ RESEND_FROM="SOWEN <suivi@votre-domaine.fr>"
 Sans ces variables, les brouillons restent dans SOWEN et le scanner d'échéances marque les points à relancer sans envoyer de mail.
 
 ### Preuves / documents
-En développement, les fichiers sont stockés localement dans `back/uploads/`. Les variables `S3_*` restent réservées au passage en stockage objet en production.
+Tous les fichiers (documents, justificatifs, dépôts du portail entreprise, rapports) passent par un service de stockage unique. La base de données ne contient qu'une clé relative (`<projet>/reports/<fichier>`), jamais un chemin absolu ni une URL.
+
+- `STORAGE_PROVIDER="local"` : fichiers dans `back/uploads/` (ou `STORAGE_LOCAL_DIR`). Prévu pour le développement.
+- `STORAGE_PROVIDER="s3"` : stockage objet compatible S3. Le bucket reste privé : les fichiers sont servis uniquement par l'API SOWEN après vérification de l'organisation ; aucune URL publique ou signée n'est produite.
+
+```env
+STORAGE_PROVIDER="s3"
+S3_ENDPOINT="https://..."        # vide pour AWS S3
+S3_REGION="..."                  # ex. gra (OVH), auto (Cloudflare R2)
+S3_BUCKET="..."
+S3_ACCESS_KEY_ID="..."
+S3_SECRET_ACCESS_KEY="..."
+```
+`S3_FORCE_PATH_STYLE` (optionnel) : `true` par défaut dès qu'un `S3_ENDPOINT` est renseigné.
+
+Si `s3` est sélectionné mais incomplet ou injoignable, l'application ne bascule pas sur le disque local : les envois échouent avec un message clair et Paramètres affiche l'erreur.
+
+Migration des fichiers existants (à lancer une fois, après avoir configuré le bucket) :
+```bash
+npm --workspace back run storage:migrate -- --dry-run   # aperçu, ne modifie rien
+npm --workspace back run storage:migrate                # envoi puis mise à jour de la base
+```
+Le script peut être relancé sans risque, ne supprime aucun fichier local et signale les fichiers manquants ou sans fiche.

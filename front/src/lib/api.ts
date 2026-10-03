@@ -170,6 +170,22 @@ async function request<T>(path: string, options?: RequestInit, retry = true): Pr
   return res.json() as Promise<T>;
 }
 
+// Downloads a file served by the API (the request carries the session) and hands it to the browser.
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const token = getAccessToken();
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'ngrok-skip-browser-warning': 'true' }, cache: 'no-store' });
+  } catch {
+    throw new SowenError(OFFLINE_ERROR);
+  }
+  if (!res.ok) throw new SowenError(res.status === 404 ? 'Fichier introuvable.' : FRIENDLY_BY_STATUS[res.status] ?? 'Téléchargement impossible.');
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url; link.download = filename; link.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   return request<T>(path, options, true);
 }
@@ -197,13 +213,13 @@ export type ApiDocumentAnalysis = {
 export type ApiReportDetail = {
   id:string; projectId:string;
   project:{id:string;name:string;buildingType?:string|null;status?:string};
-  document?:{id:string;name:string;storageKey:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt?:string}|null;
+  document?:{id:string;name:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt?:string}|null;
   issuer?:string|null; reportDate?:string|null; createdAt?:string; analyzedAt?:string|null;
   analysisStatus:string; analysisError?:string|null; aiModel?:string|null; aiConfidence?:number|null;
   observationCount:number; rawTextLength:number; aiConfigured:boolean; aiProvider?:string; configuredModel?:string; analysis?:ApiDocumentAnalysis|null; detectedObservations:number; observations: ApiObservation[];
 };
 export type ApiRule = {id:string;domain:string;title:string;summary:string;requirement:string;actionRequest?:string|null;evidenceRequired?:string|null;severity:string;buildingType?:string|null;erpType?:string|null;lot?:{id:string;name:string}|null;source?:{id:string;title:string;reference?:string|null}|null;_count?:{versions:number}};
-export type ApiDocument = {id:string;projectId:string;name:string;type:string;storageKey:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt:string};
+export type ApiDocument = {id:string;projectId:string;name:string;type:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt:string};
 export type ApiSendContext = {
   observation:{id:string;title:string;description:string;reference?:string|null;requiredAction?:string|null;severity:string;status:string;sourcePage?:number|null;dueDate?:string|null;companyId?:string|null;
     project:{id:string;name:string};lot?:{id:string;name:string}|null;report?:{id:string;name?:string|null;issuer?:string|null}|null};
