@@ -1,12 +1,17 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/http-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService);
+  // Behind a reverse proxy the client address comes from X-Forwarded-For. It is only trusted when TRUST_PROXY says
+  // how many proxies sit in front of the API (e.g. "1"); otherwise anyone could forge it to escape rate limiting.
+  const trustProxy = (config.get<string>('TRUST_PROXY') ?? '').trim();
+  if (/^\d+$/.test(trustProxy) && Number(trustProxy) > 0) app.set('trust proxy', Number(trustProxy));
   const webUrls = (config.get<string>('WEB_URL') ?? 'http://localhost:3000')
     .split(',')
     .map((s) => s.trim())

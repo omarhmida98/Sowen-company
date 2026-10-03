@@ -1,15 +1,15 @@
 'use client';
-import {useCallback,useEffect,useState} from 'react';import {useParams} from 'next/navigation';import {Check,Pencil,RotateCcw,Send,X} from 'lucide-react';import {ObservationActions} from '@/components/ObservationActions';import {EvidenceManager} from '@/components/EvidenceManager';import {AssigneeManager} from '@/components/AssigneeManager';import {SendObservationModal} from '@/components/SendObservationModal';import {EditObservationModal} from '@/components/EditObservationModal';import {api,ApiObservation,statusLabel,severityLabel} from '@/lib/api';
+import {useCallback,useEffect,useState} from 'react';import {useParams} from 'next/navigation';import {Check,Pencil,RotateCcw,Send,X} from 'lucide-react';import {ObservationActions} from '@/components/ObservationActions';import {EvidenceManager} from '@/components/EvidenceManager';import {AssigneeManager} from '@/components/AssigneeManager';import {SendObservationModal} from '@/components/SendObservationModal';import {EditObservationModal} from '@/components/EditObservationModal';import {api,ApiObservation,statusLabel,severityLabel} from '@/lib/api';import {useSession} from '@/lib/session';
 const fmt=(d?:string|null)=>d?new Intl.DateTimeFormat('fr-FR').format(new Date(d)):'—';
 // A history entry that keeps the same status records an edit or a review decision, not a status change.
 function historyTitle(h:any){if(h.fromStatus&&h.fromStatus===h.toStatus)return String(h.note||'').startsWith('Modification')?'Modification':'Revue IA';return `${h.fromStatus?`${statusLabel(h.fromStatus)} → `:''}${statusLabel(h.toStatus)}`}
 export default function Page(){
   const params=useParams<{observationId:string}>();const observationId=params.observationId;
-  const[o,setO]=useState<any>(null),[loading,setLoading]=useState(true),[sendOpen,setSendOpen]=useState(false),[editOpen,setEditOpen]=useState(false),[canSend,setCanSend]=useState(false),[busy,setBusy]=useState(false),[rejectOpen,setRejectOpen]=useState(false),[msg,setMsg]=useState(''),[isErr,setIsErr]=useState(false);
+  const[o,setO]=useState<any>(null),[loading,setLoading]=useState(true),[sendOpen,setSendOpen]=useState(false),[editOpen,setEditOpen]=useState(false),[busy,setBusy]=useState(false),[rejectOpen,setRejectOpen]=useState(false),[msg,setMsg]=useState(''),[isErr,setIsErr]=useState(false);
   const load=useCallback(()=>api<ApiObservation>(`/observations/${observationId}`).then(setO).catch(()=>setO(null)).finally(()=>setLoading(false)),[observationId]);
   useEffect(()=>{load()},[load]);
   // Only administrators and editors may send, edit or review; the API enforces the same rule.
-  useEffect(()=>{try{const role=JSON.parse(localStorage.getItem('sowen_user')||'{}').role;setCanSend(role==='ADMIN'||role==='EDITOR')}catch{setCanSend(false)}},[]);
+  const canSend=useSession().can('observation.write');
   async function review(decision:'VALIDATED'|'REJECTED'|'PENDING'){
     setBusy(true);setMsg('');setIsErr(false);
     try{await api(`/observations/${observationId}/review`,{method:'POST',body:JSON.stringify({decision})});await load();setMsg(decision==='VALIDATED'?'Observation validée.':decision==='REJECTED'?'Observation rejetée.':'Observation rétablie : elle est de nouveau à valider.')}

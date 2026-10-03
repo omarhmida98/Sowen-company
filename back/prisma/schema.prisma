@@ -149,7 +149,11 @@ model Organization {
 model User {
   id             String       @id @default(uuid())
   email          String       @unique
-  passwordHash   String
+  // NULL until the person has chosen a password (invitation pending, or password reset by an administrator)
+  passwordHash   String?
+  passwordChangedAt DateTime?
+  // increased by a password change or reset: tokens issued before stop being accepted
+  tokenVersion   Int          @default(0)
   displayName    String?
   role           UserRole     @default(USER)
   organizationId String
@@ -159,6 +163,38 @@ model User {
   assigned       ObservationAssignment[]
   activities     ActivityLog[]
   notifications  Notification[]
+  tokens         UserToken[]
+}
+
+enum UserTokenType {
+  INVITATION
+  PASSWORD_RESET
+}
+
+// Attempt counters of the sensitive authentication endpoints (sign-in, token refresh, password change, account
+// links). Shared by every API instance and kept across restarts. `key` is a keyed hash: no email or address is stored.
+model AuthRateLimit {
+  key       String   @id
+  count     Int
+  resetAt   DateTime
+  updatedAt DateTime @default(now())
+
+  @@index([resetAt])
+}
+
+// Invitation and password-reset links. Only the SHA-256 of the token is stored.
+model UserToken {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        UserTokenType
+  tokenHash   String        @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdById String?
+  createdAt   DateTime      @default(now())
+
+  @@index([userId, type])
 }
 
 model Project {

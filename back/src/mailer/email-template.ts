@@ -79,7 +79,7 @@ function row(content: string, padding = '0 28px 18px') {
   return `<tr><td class="sw-pad" style="padding:${padding};">${content}</td></tr>`;
 }
 
-type Layout = { subject: string; preheader: string; eyebrow?: string | null; title?: string | null; subtitle?: string | null; banner?: Banner | null; content: string; cta?: EmailCta | null; footerNote: string };
+type Layout = { subject: string; preheader: string; eyebrow?: string | null; title?: string | null; subtitle?: string | null; banner?: Banner | null; content: string; cta?: EmailCta | null; afterCta?: string | null; footerNote: string };
 
 function layout(l: Layout) {
   const cta = l.cta && safeUrl(l.cta.url) ? { label: l.cta.label, url: safeUrl(l.cta.url)! } : null;
@@ -111,6 +111,7 @@ ${banner}
 ${heading}
 ${l.content}
 ${button}
+${l.afterCta || ''}
 <tr><td class="sw-pad" bgcolor="${C.soft}" style="background:${C.soft};padding:16px 28px;border-top:1px solid ${C.line};border-radius:0 0 10px 10px;font:12px/1.5 ${FONT};color:${C.muted};">${escapeHtml(l.footerNote)}<br>SOWEN · Suivi de conformité chantier</td></tr>
 </table>
 </td></tr>
@@ -188,5 +189,29 @@ export function renderDigestEmail(input: DigestEmailInput): RenderedEmail {
   return {
     html: layout({ subject: input.subject, preheader: intro, eyebrow: 'Synthèse quotidienne', title: `${input.items.length} point(s) à traiter`, content: [paragraph(greeting), paragraph(intro), row(list), paragraph(outro)].join('\n'), cta: input.cta, footerNote }),
     text: textFallback([greeting, intro, input.items.map(item => `- ${item.title}\n  ${item.message}`).join('\n'), outro], input.cta, footerNote),
+  };
+}
+
+export type AccountEmailInput = { type: 'INVITATION' | 'PASSWORD_RESET'; subject: string; recipientName?: string | null; organizationName?: string | null; senderName?: string | null; url: string; validHours: number };
+
+const validity = (hours: number) => (hours >= 48 && hours % 24 === 0 ? `${hours / 24} jours` : `${hours} heure${hours > 1 ? 's' : ''}`);
+
+// Invitation to join an organisation, or link to choose a new password after an administrator reset it.
+export function renderAccountEmail(input: AccountEmailInput): RenderedEmail {
+  const invitation = input.type === 'INVITATION';
+  const organization = input.organizationName || 'votre équipe';
+  const greeting = `Bonjour${input.recipientName ? ` ${input.recipientName}` : ''},`;
+  const intro = invitation
+    ? `${input.senderName || 'Un administrateur'} vous invite à rejoindre l’espace « ${organization} » sur SOWEN, l’outil de suivi de conformité chantier.`
+    : `Un administrateur de l’espace « ${organization} » a réinitialisé votre mot de passe SOWEN. Votre ancien mot de passe ne fonctionne plus.`;
+  const action = invitation ? 'Pour activer votre compte, choisissez votre mot de passe :' : 'Pour retrouver l’accès à votre compte, choisissez un nouveau mot de passe :';
+  const limit = `Ce lien est personnel, valable ${validity(input.validHours)} et utilisable une seule fois.`;
+  const ignore = invitation ? 'Si vous n’attendiez pas cette invitation, vous pouvez ignorer ce message.' : 'Si vous n’êtes pas à l’origine de cette demande, contactez votre administrateur.';
+  const footerNote = `Message envoyé par ${organization} via SOWEN. Ne transférez pas cet email : le lien donne accès à votre compte.`;
+  const cta = { label: invitation ? 'Activer mon compte' : 'Choisir un nouveau mot de passe', url: input.url };
+  const paragraph = (text: string, muted = false) => row(`<div style="font:14px/1.6 ${FONT};color:${muted ? C.muted : C.text};">${escapeHtml(text)}</div>`);
+  return {
+    html: layout({ subject: input.subject, preheader: intro, eyebrow: organization, title: invitation ? 'Vous êtes invité sur SOWEN' : 'Réinitialisation de votre mot de passe', content: [paragraph(greeting), paragraph(intro), paragraph(action)].join('\n'), cta, afterCta: [paragraph(limit, true), paragraph(ignore, true)].join('\n'), footerNote }),
+    text: textFallback([greeting, intro, action], cta, `${limit}\n${ignore}\n\n${footerNote}`),
   };
 }

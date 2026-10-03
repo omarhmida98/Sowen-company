@@ -1,9 +1,11 @@
 'use client';
+import {useSession} from '@/lib/session';
 import { useEffect, useMemo, useState } from 'react';
 import { CheckSquare, ChevronRight, Info, TriangleAlert } from 'lucide-react';
 import { api, ApiLot, ApiRule, severityLabel } from '@/lib/api';
 
 export function PrecontrolForm({ projectId, buildingType, erpType }: { projectId: string; buildingType?: string; erpType?: string | null }) {
+  const {role,can}=useSession();
   const [step, setStep] = useState(1);
   const [lots, setLots] = useState<ApiLot[]>([]);
   const [lotId, setLotId] = useState('');
@@ -55,6 +57,8 @@ export function PrecontrolForm({ projectId, buildingType, erpType }: { projectId
   }
 
   const confidence = aiConfidence !== null ? Math.round(aiConfidence * 100) : null;
+  if(!role)return null;
+  if(!can('precontrol.run'))return <div className="card empty">Votre rôle ne permet pas de lancer un pré-contrôle.</div>;
   return <div className="stack"><div className="card wizard">
     <div className="steps"><span className={step >= 1 ? 'active' : ''}>1. Contexte</span><span className={step >= 2 ? 'active' : ''}>2. Travaux</span><span className={step >= 3 ? 'active' : ''}>3. Analyse</span></div>
     {step === 1 && <div><h2>Contexte réglementaire</h2><p className="muted">Le contexte du projet est déjà connu par SOWEN.</p><div className="form-grid"><label>Type de bâtiment<input value={buildingType || '—'} disabled /></label><label>Type ERP<input value={erpType || '—'} disabled /></label><label>Lot principal<select value={lotId} onChange={e => setLotId(e.target.value)}><option value="">Tous les lots</option>{lots.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label></div><div className="wizard-actions"><button className="btn" onClick={() => setStep(2)}>Continuer <ChevronRight size={16} /></button></div></div>}

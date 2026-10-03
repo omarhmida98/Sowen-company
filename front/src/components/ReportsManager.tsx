@@ -1,11 +1,12 @@
 'use client';
+import {useSession} from '@/lib/session';
 import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/navigation';
 import {FileSearch,Eye,RefreshCw} from 'lucide-react';
 import {api,ApiProject,ApiReportFailure,analysisStatusLabel,ANALYSIS_STATUS_TONE} from '@/lib/api';
 type Report={id:string;issuer?:string|null;createdAt:string;analysisStatus:string;project:{id:string;name:string};document?:{name:string}|null;_count?:{observations:number};failure?:ApiReportFailure|null};
-export function ReportsManager({projectId: lockedProjectId}:{projectId?:string}){
+export function ReportsManager({projectId: lockedProjectId}:{projectId?:string}){const {can}=useSession();
   const router=useRouter();
   const[rows,setRows]=useState<Report[]>([]),[projects,setProjects]=useState<ApiProject[]>([]),[open,setOpen]=useState(false),[file,setFile]=useState<File|null>(null),[projectId,setProjectId]=useState(lockedProjectId||''),[issuer,setIssuer]=useState(''),[busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[isErr,setIsErr]=useState(false),[retrying,setRetrying]=useState('');
   const load=async()=>{try{setRows(await api(`/reports${lockedProjectId?`?projectId=${lockedProjectId}`:''}`));if(!lockedProjectId)setProjects(await api('/projects'))}catch(e:any){setMsg(e.message);setIsErr(true)}};
@@ -16,7 +17,7 @@ export function ReportsManager({projectId: lockedProjectId}:{projectId?:string})
   return <>
     <div className="topbar">
       <div className="title"><div className="eyebrow">Bureau de Contrôle</div><h1>Rapports BC</h1><p>Les rapports importés et leurs points de contrôle.</p></div>
-      <button className="btn" onClick={()=>setOpen(true)}>+ Importer un rapport</button>
+      {can('report.write')&&<button className="btn" onClick={()=>setOpen(true)}>+ Importer un rapport</button>}
     </div>
     {msg&&<div className={isErr?'notice error':'notice'}>{msg}</div>}
     <div className="section">
@@ -31,7 +32,7 @@ export function ReportsManager({projectId: lockedProjectId}:{projectId?:string})
               <span className="badge">{r._count?.observations||0} observation(s)</span>
               <span className="badge">{new Intl.DateTimeFormat('fr-FR').format(new Date(r.createdAt))}</span>
             </div>
-            <div className="actions">{r.failure?.retryable&&<button className="btn" disabled={retrying!==''} onClick={e=>{e.stopPropagation();retry(r)}}><RefreshCw size={15}/>{retrying===r.id?'Analyse en cours…':'Relancer l’analyse'}</button>}<Link className="btn secondary" href={`/reports/${r.id}`} onClick={e=>e.stopPropagation()}><Eye size={15}/>Voir le rapport</Link></div>
+            <div className="actions">{r.failure?.retryable&&can('report.write')&&<button className="btn" disabled={retrying!==''} onClick={e=>{e.stopPropagation();retry(r)}}><RefreshCw size={15}/>{retrying===r.id?'Analyse en cours…':'Relancer l’analyse'}</button>}<Link className="btn secondary" href={`/reports/${r.id}`} onClick={e=>e.stopPropagation()}><Eye size={15}/>Voir le rapport</Link></div>
           </div>;
         })}</div>}
     </div>

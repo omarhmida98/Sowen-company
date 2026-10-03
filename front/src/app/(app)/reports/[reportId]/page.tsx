@@ -1,4 +1,5 @@
 'use client';
+import {useSession} from '@/lib/session';
 import {useEffect,useState} from 'react';
 import Link from 'next/link';
 import {useParams} from 'next/navigation';
@@ -16,6 +17,7 @@ function friendlyError(raw?: string | null) {
 }
 
 export default function ReportDetailPage(){
+  const {can}=useSession();
   const params = useParams<{ reportId: string }>();
   const reportId = params.reportId;
   const [report, setReport] = useState<ApiReportDetail | null>(null);
@@ -84,7 +86,7 @@ export default function ReportDetailPage(){
       <div className="actions">
         <Link className="btn secondary" href="/reports"><ArrowLeft size={16}/>← Rapports</Link>
         {report.document && <button className="btn secondary" onClick={download} disabled={busy !== null}><DownloadCloud size={16}/>Télécharger le PDF</button>}
-        <button className="btn" onClick={askReanalyze} disabled={!canReanalyze} title={report.aiConfigured ? undefined : "L'analyse IA n'est pas configurée."}><RefreshCw size={16}/>Relancer l'analyse</button>
+        {can('report.write')&&<button className="btn" onClick={askReanalyze} disabled={!canReanalyze} title={report.aiConfigured ? undefined : "L'analyse IA n'est pas configurée."}><RefreshCw size={16}/>Relancer l'analyse</button>}
       </div>
     </div>
 
@@ -130,7 +132,7 @@ export default function ReportDetailPage(){
       <h2>Échec de l'analyse</h2>
       <p>{report.failure?.message || "L'analyse a échoué pour une raison technique."}</p>
       {report.failure?.retryHint && <p className="muted">{report.failure.retryHint}</p>}
-      {report.failure?.retryable && <div className="actions" style={{ margin: '12px 0' }}><button className="btn" onClick={askReanalyze} disabled={!canReanalyze}><RefreshCw size={16}/>{busy === 'reanalyze' ? 'Analyse en cours…' : "Relancer l'analyse"}</button></div>}
+      {report.failure?.retryable && can('report.write') && <div className="actions" style={{ margin: '12px 0' }}><button className="btn" onClick={askReanalyze} disabled={!canReanalyze}><RefreshCw size={16}/>{busy === 'reanalyze' ? 'Analyse en cours…' : "Relancer l'analyse"}</button></div>}
       {report.analysisError && <details><summary>Détail technique</summary><p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{friendlyError(report.analysisError)}</p></details>}
     </div>}
     {(report.analysisStatus === 'COMPLETED' || report.analysisStatus === 'NEEDS_REVIEW') && report.observationCount === 0 && report.detectedObservations === 0 && <div className="notice">{report.analysis ? "Document analysé — il ne contient aucune observation de conformité à suivre." : 'Analyse terminée — aucune observation détectée'}</div>}
@@ -138,7 +140,7 @@ export default function ReportDetailPage(){
 
     {report.detectedObservations > 0 && report.observationCount === 0 && !canMaterialize && <div className="notice" style={{ marginTop: 8 }}>Des observations ont été détectées mais ne sont pas encore en base.</div>}
 
-    {(canMaterialize) && <div className="actions" style={{ margin: '14px 0' }}>
+    {canMaterialize && can('report.write') && <div className="actions" style={{ margin: '14px 0' }}>
       <button className="btn" onClick={materialize} disabled={busy !== null}><ListChecks size={16}/>Matérialiser les observations</button>
     </div>}
 

@@ -14,12 +14,16 @@ function saveSession(payload: SessionPayload) {
   localStorage.setItem('sowen_access_token', payload.accessToken);
   localStorage.setItem('sowen_refresh_token', payload.refreshToken);
   if (payload.user) localStorage.setItem('sowen_user', JSON.stringify(payload.user));
+  window.dispatchEvent(new Event('sowen-session'));
 }
+// Stores the session returned by sign-in, a password change or an accepted invitation.
+export function storeSession(payload: SessionPayload) { saveSession(payload); }
 export function clearSession() {
   if (!isBrowser()) return;
   localStorage.removeItem('sowen_access_token');
   localStorage.removeItem('sowen_refresh_token');
   localStorage.removeItem('sowen_user');
+  window.dispatchEvent(new Event('sowen-session'));
 }
 
 export class SowenError extends Error {
@@ -33,7 +37,7 @@ const FRIENDLY_BY_STATUS: Record<number, string> = {
   404: 'Élément introuvable. Il a peut-être été supprimé ou déplacé.',
   409: 'Un élément identique existe déjà.',
   422: 'Certaines informations sont invalides. Vérifiez puis réessayez.',
-  429: 'Trop de demandes. Patientez quelques secondes puis réessayez.',
+  429: 'Trop de tentatives. Patientez quelques minutes puis réessayez.',
 };
 const GENERIC_ERROR = 'Une erreur est survenue. Merci de réessayer dans quelques instants.';
 const OFFLINE_ERROR = 'Impossible de joindre le service SOWEN. Vérifiez votre connexion internet puis réessayez.';
@@ -149,7 +153,7 @@ async function request<T>(path: string, options?: RequestInit, retry = true): Pr
       }
     }
     clearSession();
-    if (!location.pathname.startsWith('/login') && !location.pathname.startsWith('/register') && !location.pathname.startsWith('/portal/')) {
+    if (!location.pathname.startsWith('/login') && !location.pathname.startsWith('/register') && !location.pathname.startsWith('/portal/') && !location.pathname.startsWith('/invitation/')) {
       location.href = '/login';
     }
   }

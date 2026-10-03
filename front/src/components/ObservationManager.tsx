@@ -1,4 +1,5 @@
 'use client';
+import {useSession} from '@/lib/session';
 import {useEffect,useMemo,useState} from 'react';import Link from 'next/link';import {useRouter} from 'next/navigation';import {api,ApiCompany,ApiLot,ApiObservation,ApiProject,statusLabel,severityLabel} from '@/lib/api';
 import {filterObservations,hasActiveFilters,NONE,ObservationFilters} from '@/lib/observation-filters';
 const fmt=(d?:string|null)=>d?new Intl.DateTimeFormat('fr-FR').format(new Date(d)):'—';
@@ -8,7 +9,7 @@ const STATUSES=['OPEN','TO_SEND','SENT','WAITING','TO_RELAUNCH','BLOCKED','RESOL
 const NO_FILTERS:ObservationFilters={q:'',status:'',severity:'',lotId:'',companyId:'',review:'',sort:'newest'};
 // Lots or companies that appear in the listed observations, sorted by name.
 function options(rows:ApiObservation[],pick:(o:ApiObservation)=>{id:string;name:string}|null|undefined){const m=new Map<string,string>();for(const o of rows){const v=pick(o);if(v)m.set(v.id,v.name)}return [...m].map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name,'fr'))}
-export function ObservationManager({projectId,status,filter}:{projectId?:string;status?:string;filter?:string}){
+export function ObservationManager({projectId,status,filter}:{projectId?:string;status?:string;filter?:string}){const {can}=useSession();
   const [rows,setRows]=useState<ApiObservation[]>([]),[projects,setProjects]=useState<ApiProject[]>([]),[companies,setCompanies]=useState<ApiCompany[]>([]),[lots,setLots]=useState<ApiLot[]>([]),[open,setOpen]=useState(false),[msg,setMsg]=useState(''),[isErr,setIsErr]=useState(false),[busy,setBusy]=useState(false),[filters,setFilters]=useState<ObservationFilters>(NO_FILTERS);
   const load=async()=>{try{const [o,p,c,l]=await Promise.all([api<ApiObservation[]>(`/observations${projectId?`?projectId=${projectId}`:''}`),projectId?Promise.resolve([] as ApiProject[]):api<ApiProject[]>('/projects'),api<ApiCompany[]>('/companies'),api<ApiLot[]>('/lots')]);setRows(o);setProjects(p);setCompanies(c);setLots(l)}catch(e:any){setMsg(e.message);setIsErr(true)}};
   useEffect(()=>{load()},[projectId]);
@@ -27,7 +28,7 @@ export function ObservationManager({projectId,status,filter}:{projectId?:string;
   const active=hasActiveFilters(filters);
   function clearFilter(){router.replace('/observations')}
   return <>
-    <div className="topbar"><div className="title"><div className="eyebrow">Suivi global</div><h1>Observations</h1><p>Toutes les remarques enregistrées.</p></div><button className="btn" onClick={()=>setOpen(true)}>+ Observation manuelle</button></div>
+    <div className="topbar"><div className="title"><div className="eyebrow">Suivi global</div><h1>Observations</h1><p>Toutes les remarques enregistrées.</p></div>{can('observation.write')&&<button className="btn" onClick={()=>setOpen(true)}>+ Observation manuelle</button>}</div>
     {msg&&<div className={isErr?'notice error':'notice'}>{msg}</div>}
     {filterLabel&&<div className="filter-banner"><span>Filtre actif :&nbsp;<strong>{filterLabel}</strong></span><button type="button" onClick={clearFilter}>Effacer le filtre</button></div>}
     {rows.length>0&&<div className="obs-filters">
