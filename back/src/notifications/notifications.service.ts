@@ -1,14 +1,18 @@
-import {Injectable,Logger} from '@nestjs/common';
+import {Injectable,Logger,OnModuleInit} from '@nestjs/common';
 import {ConfigService} from '@nestjs/config';
-import {Cron} from '@nestjs/schedule';
+import {SchedulerRegistry} from '@nestjs/schedule';
+import {CronJob} from 'cron';
 import {MailerService} from '../mailer/mailer.service';
 import {renderDigestEmail} from '../mailer/email-template';
 import {PrismaService} from '../prisma/prisma.service';
+import {DIGEST_CRON,digestSlot,digestTimezone,isDigestDay} from './digest-rules';
+
+const DIGEST_ENTITY='DailyDigest';
 
 @Injectable()
-export class NotificationsService{
+export class NotificationsService implements OnModuleInit{
   private readonly logger=new Logger(NotificationsService.name);
-  constructor(private p:PrismaService,private config:ConfigService,private mailer:MailerService){}
+  constructor(private p:PrismaService,private config:ConfigService,private mailer:MailerService,private scheduler:SchedulerRegistry){}
 
   private async upsertForUsers(organizationId:string,dedupeBase:string,data:{kind:any;priority:any;title:string;message:string;href?:string}){
     const users=await this.p.user.findMany({where:{organizationId},select:{id:true}});
@@ -53,25 +57,64 @@ export class NotificationsService{
   markRead(id:string,userId:string){return this.p.notification.updateMany({where:{id,userId},data:{readAt:new Date()}})}
   markAllRead(userId:string){return this.p.notification.updateMany({where:{userId,readAt:null},data:{readAt:new Date()}})}
 
-  async sendDigestForOrganization(organizationId:string){
-    if(!this.mailer.isConfigured())return {sent:0,configured:false};
-    await this.sync(organizationId);
-    const users=await this.p.user.findMany({where:{organizationId,role:{in:['ADMIN','EDITOR']}},select:{id:true,email:true,displayName:true}});
-    let sent=0;
-    for(const u of users){
-      const rows=await this.p.notification.findMany({where:{userId:u.id,readAt:null},orderBy:{createdAt:'desc'},take:20});
-      if(!rows.length)continue;
-      const subject=`SOWEN · ${rows.length} point(s) à traiter`;const appUrl=this.mailer.publicAppUrl();
-      try{await this.mailer.send({to:u.email,subject,automated:true,...renderDigestEmail({subject,recipientName:u.displayName,items:rows.map(n=>({title:n.title,message:n.message})),cta:appUrl?{label:'Ouvrir SOWEN',url:appUrl}:null})})}catch(error:any){this.logger.error(`Digest for user ${u.id} could not be sent: ${error?.message}`);continue}
-      sent++;
-    }
-    return {sent,configured:true};
+  // ---- Daily digest ----
+  // Scheduled Monday to Friday at 08:00 in DAILY_DIGEST_TIMEZONE (default Europe/Paris). Registered here rather than
+  // with @Cron because the timezone comes from configuration.
+  onModuleInit(){
+    const zone=this.timezone();
+    const job=new CronJob(DIGEST_CRON,()=>{void this.scheduledDigest()},null,false,zone);
+    this.scheduler.addCronJob('daily-digest',job);
+    job.start();
+    this.logger.log(`Daily digest scheduled at 08:00 (${zone}), Monday to Friday`);
   }
 
-  @Cron('0 8 * * *')
-  async scheduledDigest(){
+  timezone(){return digestTimezone(this.config.get<string>('DAILY_DIGEST_TIMEZONE'))}
+
+  // Takes the user's digest slot for the day. The advisory lock makes "check, then record" atomic across requests and
+  // backend instances, so two triggers at the same moment cannot both win. Returns the claim id, or null if already taken.
+  private async claimDigest(userId:string,slot:string):Promise<string|null>{
+    return this.p.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sowen-digest:${slot}`}))`;
+      const existing=await tx.activityLog.findFirst({where:{entityType:DIGEST_ENTITY,entityId:slot},select:{id:true}});
+      if(existing)return null;
+      return (await tx.activityLog.create({data:{userId,action:'Synthèse quotidienne envoyée',entityType:DIGEST_ENTITY,entityId:slot},select:{id:true}})).id;
+    });
+  }
+
+  async sendDigestForOrganization(organizationId:string,now:Date=new Date()){
+    if(!this.mailer.isConfigured())return {sent:0,alreadySentToday:0,nothingUnread:0,failed:0,configured:false};
+    const zone=this.timezone();
+    await this.sync(organizationId);
+    const users=await this.p.user.findMany({where:{organizationId,role:{in:['ADMIN','EDITOR']}},select:{id:true,email:true,displayName:true}});
+    let sent=0,alreadySentToday=0,nothingUnread=0,failed=0;
+    for(const u of users){
+      const rows=await this.p.notification.findMany({where:{userId:u.id,readAt:null},orderBy:{createdAt:'desc'},take:20});
+      if(!rows.length){nothingUnread++;continue}
+      // Claim before sending: at most one digest per user and per local calendar day, whatever triggered it.
+      const claim=await this.claimDigest(u.id,digestSlot(u.id,now,zone));
+      if(!claim){alreadySentToday++;continue}
+      const subject=`SOWEN · ${rows.length} point(s) à traiter`;const appUrl=this.mailer.publicAppUrl();
+      try{await this.mailer.send({to:u.email,subject,automated:true,...renderDigestEmail({subject,recipientName:u.displayName,items:rows.map(n=>({title:n.title,message:n.message})),cta:appUrl?{label:'Ouvrir SOWEN',url:appUrl}:null})})}
+      catch(error:any){
+        // Nothing was delivered: release the slot so a later trigger can retry today.
+        this.logger.error(`Digest for user ${u.id} could not be sent: ${error?.message}`);
+        await this.p.activityLog.delete({where:{id:claim}}).catch(()=>{});
+        failed++;continue;
+      }
+      sent++;
+    }
+    return {sent,alreadySentToday,nothingUnread,failed,configured:true};
+  }
+
+  async scheduledDigest(now:Date=new Date()){
     const enabled=(this.config.get<string>('DAILY_DIGEST_ENABLED')||'false').toLowerCase()==='true';
-    if(!enabled)return;
-    try{const orgs=await this.p.organization.findMany({select:{id:true}});for(const org of orgs)await this.sendDigestForOrganization(org.id);this.logger.log(`Daily digest processed for ${orgs.length} organization(s)`)}catch(e:any){this.logger.error(e?.message||e)}
+    if(!enabled)return {ran:false,reason:'disabled'};
+    if(!isDigestDay(now,this.timezone()))return {ran:false,reason:'weekend'};
+    try{
+      const orgs=await this.p.organization.findMany({select:{id:true}});let sent=0;
+      for(const org of orgs)sent+=(await this.sendDigestForOrganization(org.id,now)).sent;
+      this.logger.log(`Daily digest processed for ${orgs.length} organization(s): ${sent} email(s) sent`);
+      return {ran:true,sent};
+    }catch(e:any){this.logger.error(`Daily digest failed: ${e?.message||e}`);return {ran:false,reason:'error'}}
   }
 }

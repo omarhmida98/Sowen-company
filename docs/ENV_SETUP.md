@@ -21,6 +21,8 @@
 - `RESEND_API_KEY` + `RESEND_FROM` : lorsque le fournisseur est Resend.
 - `SENT_REMINDER_AFTER_DAYS` : nombre de jours sans réponse de l'entreprise après lesquels une observation « Envoyé » est relancée par le scan (3 par défaut, `0` pour désactiver).
 - `PUBLIC_APP_URL` : adresse publique de l'application web. Si elle est renseignée et que l'entreprise dispose déjà d'un accès portail actif pour le projet, les emails contiennent un bouton « Répondre / transmettre les justificatifs » ; sinon aucun lien n'est ajouté.
+- `DAILY_DIGEST_ENABLED` : `true` pour envoyer la synthèse quotidienne aux administrateurs et éditeurs ayant des notifications non lues.
+- `DAILY_DIGEST_TIMEZONE` : fuseau horaire de la synthèse (nom IANA, `Europe/Paris` par défaut). L'envoi a lieu à 08:00 dans ce fuseau, du lundi au vendredi, une seule fois par utilisateur et par jour.
 - variables `S3_*` : réservées au stockage objet de production.
 
 Les secrets JWT ne sont pas récupérés auprès d'un fournisseur : ils doivent être générés par l'administrateur.
