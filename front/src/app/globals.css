@@ -112,3 +112,9 @@ html[data-theme="dark"] .obs-count{color:#c8d3e3}html[data-theme="dark"] .obs-co
 .portal{max-width:920px;margin:0 auto}.portal-tools{display:flex;justify-content:flex-end;margin-bottom:10px}.portal-observation h3{margin:18px 0 8px}.portal-observation .btn{margin-top:8px}
 .portal-note{font-size:13px}.close-modal .check-line{margin:10px 0;align-items:flex-start}
 html[data-theme="dark"] .response{border-left-color:#27406b}html[data-theme="dark"] .response[data-source="INTERNAL"]{border-left-color:#2a3a52}html[data-theme="dark"] .refusal{color:#ff9d94}
+.empty-library{padding:26px}.empty-library h2{margin:0 0 8px}.empty-library .actions{margin-top:14px;flex-wrap:wrap}
+.rules-disclaimer{font-size:12px;margin-bottom:14px}.rule-inactive{opacity:.72}.rule .actions{flex-wrap:wrap;margin-top:10px}
+.rule-modal,.import-modal{width:min(860px,100%)}.import-preview{margin:12px 0}.import-preview .table-wrap{max-height:320px;overflow:auto;margin-top:10px}.import-preview td{vertical-align:top}
+.precontrol-terms small{display:block;margin-bottom:6px;color:#516079;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.06em}.match .why{background:#f3f7ff;border-radius:8px;padding:8px 12px}
+html[data-theme="dark"] .match .why{background:#152238}html[data-theme="dark"] .precontrol-terms small{color:#c8d3e3}
+.badge>span+span{margin-left:4px}

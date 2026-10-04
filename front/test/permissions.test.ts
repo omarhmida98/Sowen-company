@@ -12,8 +12,8 @@ test('an administrator is offered every action', () => {
   for (const action of actions) assert.equal(can('ADMIN', action), true, action);
 });
 
-test('an editor works on the data but not on the organisation, the team, the lots or the rules', () => {
-  const adminOnly: Action[] = ['lot.create', 'rule.write', 'organization.manage', 'team.manage'];
+test('an editor works on the data, rules included, but not on the organisation, the team or the lots', () => {
+  const adminOnly: Action[] = ['lot.create', 'organization.manage', 'team.manage'];
   for (const action of actions) assert.equal(can('EDITOR', action), !adminOnly.includes(action), action);
 });
 

@@ -225,7 +225,7 @@ export type ApiReportDetail = {
   analysisStatus:string; analysisError?:string|null; failure?:ApiReportFailure|null; aiModel?:string|null; aiConfidence?:number|null;
   observationCount:number; rawTextLength:number; aiConfigured:boolean; aiProvider?:string; configuredModel?:string; analysis?:ApiDocumentAnalysis|null; detectedObservations:number; observations: ApiObservation[];
 };
-export type ApiRule = {id:string;domain:string;title:string;summary:string;requirement:string;actionRequest?:string|null;evidenceRequired?:string|null;severity:string;buildingType?:string|null;erpType?:string|null;lot?:{id:string;name:string}|null;source?:{id:string;title:string;reference?:string|null}|null;_count?:{versions:number}};
+export type ApiRule = {id:string;domain:string;title:string;summary:string;requirement:string;workType?:string|null;reference?:string|null;sourceDocument?:string|null;controlPoint?:string|null;actionRequest?:string|null;evidenceRequired?:string|null;severity:string;buildingType?:string|null;erpType?:string|null;active:boolean;lot?:{id:string;name:string}|null;_count?:{versions:number;observations?:number;complianceChecks?:number}};
 export type ApiDocument = {id:string;projectId:string;name:string;type:string;mimeType?:string|null;sizeBytes?:number|null;uploadedAt:string};
 export type ApiSendContext = {
   observation:{id:string;title:string;description:string;reference?:string|null;requiredAction?:string|null;severity:string;status:string;sourcePage?:number|null;dueDate?:string|null;companyId?:string|null;

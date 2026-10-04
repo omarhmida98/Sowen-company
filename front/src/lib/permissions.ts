@@ -19,7 +19,7 @@ export const PERMISSIONS = {
   'digest.send': WRITERS,
   'precontrol.run': WRITERS,
   'lot.create': ADMIN,
-  'rule.write': ADMIN,
+  'rule.write': WRITERS,
   'organization.manage': ADMIN,
   'team.manage': ADMIN,
 } as const satisfies Record<string, Role[]>;

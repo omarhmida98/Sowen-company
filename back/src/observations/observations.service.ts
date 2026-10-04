@@ -41,6 +41,7 @@ export class ObservationsService {
         report: true,
         history: { orderBy: { createdAt: 'desc' } },
         responses: { orderBy: { createdAt: 'desc' } },
+        rule: { select: { id: true, title: true, reference: true, active: true } },
         assignments: { include: { user: { select: { id: true, displayName: true, email: true, role: true } } } },
         generatedEmails: { orderBy: { createdAt: 'desc' } },
         evidence: { include: { document: true }, orderBy: { createdAt: 'desc' } },

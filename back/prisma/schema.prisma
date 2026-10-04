@@ -144,6 +144,7 @@ model Organization {
   projects  Project[]
   companies Company[]
   notifications Notification[]
+  rules     Rule[]
 }
 
 model User {
@@ -283,6 +284,9 @@ model RuleSource {
 
 model Rule {
   id           String       @id @default(uuid())
+  // The library is per organisation: a rule always has one (NOT NULL in the database).
+  organizationId String
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   legacyId     String?
   lotId        String?
   sourceId     String?
@@ -298,6 +302,9 @@ model Rule {
   summary      String
   condition    String?
   requirement  String
+  // Regulatory or contractual reference, and the document it comes from, as entered by the organisation.
+  reference    String?
+  sourceDocument String?
   controlPoint String?
   evidenceRequired String?
   actionRequest String?
@@ -308,9 +315,11 @@ model Rule {
   updatedAt    DateTime     @updatedAt
   versions     RuleVersion[]
   complianceChecks ComplianceCheck[]
+  observations Observation[]
 
   @@index([domain, buildingType, erpType])
   @@index([lotId, active])
+  @@index([organizationId, active])
 }
 
 model RuleVersion {
@@ -411,6 +420,9 @@ model Observation {
   closedAt        DateTime?
   closedById      String?
   closureNote     String?
+  // Rule of the library this observation was created from (preventive pre-control).
+  ruleId          String?
+  rule            Rule?             @relation(fields: [ruleId], references: [id], onDelete: SetNull)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   assignments     ObservationAssignment[]
