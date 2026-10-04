@@ -11,7 +11,7 @@ export class LoginDto {
   @IsString() @MaxLength(200) password!: string;
 }
 export class RefreshDto {
-  @IsString() refreshToken!: string;
+  @IsString() @MaxLength(2000) refreshToken!: string;
 }
 export class ChangePasswordDto {
   @IsString() @MaxLength(200) currentPassword!: string;

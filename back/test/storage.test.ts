@@ -195,7 +195,7 @@ function appHarness(storage: StorageService, docs: Doc[], options: { failCreate?
   return { prisma, activity, documents: new DocumentsService(prisma, storage), evidence: new EvidenceService(prisma, storage), projects: new ProjectsService(prisma, storage), reports: new ReportsService(prisma, {} as any, storage) };
 }
 const doc = (extra: Partial<Doc> = {}): Doc => ({ id: 'doc-1', projectId: 'project-a', organizationId: 'org-a', name: 'plan.pdf', type: 'PLAN', mimeType: 'application/pdf', storageKey: 'project-a/1-plan.pdf', ...extra });
-const file = (name = 'plan.pdf') => ({ originalname: name, buffer: Buffer.from('contenu du fichier'), mimetype: 'application/pdf', size: 18 }) as any;
+const file = (name = 'plan.pdf') => ({ originalname: name, buffer: Buffer.from('%PDF-1.4 contenu du fichier'), mimetype: 'application/pdf', size: 27 }) as any;
 
 test('upload stores the file through the storage service and records a relative key', async () => {
   const mem = memoryStorage(); const docs: Doc[] = [];
@@ -203,7 +203,7 @@ test('upload stores the file through the storage service and records a relative 
   const created: any = await app.documents.upload('project-a', 'PLAN', file('Plan R+1.pdf'), 'org-a', 'user-1');
   assert.match(created.storageKey, /^project-a\/\d+-Plan_R_1\.pdf$/);
   assert.ok(!isLegacyPath(created.storageKey));
-  assert.equal(mem.files.get(created.storageKey)!.toString(), 'contenu du fichier');
+  assert.equal(mem.files.get(created.storageKey)!.toString(), '%PDF-1.4 contenu du fichier');
 });
 
 test('a database failure during upload does not leave a file behind', async () => {

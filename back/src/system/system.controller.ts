@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { StorageService } from '../storage/storage.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/auth.types';
 
 @Controller('system')
 export class SystemController {
@@ -14,26 +16,27 @@ export class SystemController {
   ) {}
 
   @Get('status')
-  async status() {
+  async status(@CurrentUser() user: AuthUser) {
+    const admin = user.role === 'ADMIN';
     let database = false;
-    let databaseError: string | null = null;
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       database = true;
-    } catch (error) {
-      databaseError = error instanceof Error ? error.message : 'Database connection failed';
+    } catch {
+      // the reason stays in the server log (health check): it can name hosts and credentials
     }
+    const storage = await this.storage.status();
 
     return {
       database,
-      databaseError,
       ai: Boolean(this.config.get<string>('ANTHROPIC_API_KEY')?.trim()),
       aiProvider: 'Claude',
       email: this.mailer.isConfigured(),
       emailProvider: this.mailer.provider(),
-      emailSender: this.mailer.sender(),
+      // the sending address and technical details are shown to administrators only
+      emailSender: admin ? this.mailer.sender() : null,
       // What is really in use: provider, whether it works, and why not when it does not.
-      storage: await this.storage.status(),
+      storage: admin ? storage : { ...storage, detail: null },
       automation: this.config.get('REMINDER_AUTOMATION_ENABLED') === 'true',
       digest: this.config.get('DAILY_DIGEST_ENABLED') === 'true',
     };

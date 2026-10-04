@@ -26,6 +26,35 @@ export function clearSession() {
   window.dispatchEvent(new Event('sowen-session'));
 }
 
+// Signs out: the session is ended on the server first (its tokens stop working even if somebody kept a copy), then
+// forgotten by this browser. The browser is signed out even when the server cannot be reached.
+export async function logout(): Promise<void> {
+  const refreshToken = getRefreshToken();
+  if (refreshToken) {
+    try { await fetch(`${API_URL}/auth/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }), cache: 'no-store', keepalive: true }); } catch { /* offline: the local session is cleared anyway */ }
+  }
+  clearSession();
+}
+
+// One renewal at a time: the refresh token is replaced at each renewal, so several requests that expire together
+// share a single call instead of each presenting the same token.
+let refreshing: Promise<boolean> | null = null;
+function renewSession(): Promise<boolean> {
+  if (!refreshing) {
+    refreshing = (async () => {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) return false;
+      try {
+        const res = await fetch(`${API_URL}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }), cache: 'no-store' });
+        if (!res.ok) return false;
+        saveSession(await res.json() as SessionPayload);
+        return true;
+      } catch { return false; }
+    })().finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
+
 export class SowenError extends Error {
   isErr = true;
 }
@@ -137,21 +166,8 @@ async function request<T>(path: string, options?: RequestInit, retry = true): Pr
     throw new SowenError(OFFLINE_ERROR);
   }
 
-  if (res.status === 401 && retry && isBrowser() && path !== '/auth/login' && path !== '/auth/register' && path !== '/auth/refresh') {
-    const refreshToken = getRefreshToken();
-    if (refreshToken) {
-      const refreshRes = await fetch(`${API_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-        cache: 'no-store',
-      });
-      if (refreshRes.ok) {
-        const refreshed = await refreshRes.json() as SessionPayload;
-        saveSession(refreshed);
-        return request<T>(path, options, false);
-      }
-    }
+  if (res.status === 401 && retry && isBrowser() && path !== '/auth/login' && path !== '/auth/register' && path !== '/auth/refresh' && path !== '/auth/logout') {
+    if (await renewSession()) return request<T>(path, options, false);
     clearSession();
     if (!location.pathname.startsWith('/login') && !location.pathname.startsWith('/register') && !location.pathname.startsWith('/portal/') && !location.pathname.startsWith('/invitation/')) {
       location.href = '/login';

@@ -32,7 +32,10 @@ Application de suivi conformité chantier / Bureau de Contrôle.
 
 Aucune donnée de démonstration n'est injectée par le seed.
 
-## Installation
+## Installation (développement local)
+Pour une mise en production, suivre `docs/DEPLOYMENT.md` : la base y est mise à jour avec `prisma migrate deploy`
+(`npm run db:deploy`), jamais avec `npm run db:migrate`, qui est une commande de développement.
+
 Dans le dossier racine :
 
 ```powershell

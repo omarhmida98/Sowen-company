@@ -13,3 +13,9 @@ coverage/
 .claude/settings.local.json
 back/uploads/
 uploads/
+# production deployment: real settings and backups never go to Git
+deploy/.env
+deploy/api/.env
+deploy/backup.env
+deploy/backups/
+backups/

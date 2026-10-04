@@ -123,22 +123,6 @@ export class EmailsService {
     await this.prisma.activityLog.create({ data: { projectId: email.projectId, userId, action: 'Relance envoyée', entityType: 'GeneratedEmail', entityId: id } });
     return updated;
   }
-  async resolve(token: string) {
-    const email = await this.prisma.generatedEmail.findUnique({ where: { resolveToken: token }, include: { observation: true } });
-    if (!email) throw new NotFoundException('Resolve link invalid');
-    const now = new Date();
-    const updated = await this.prisma.generatedEmail.update({ where: { id: email.id }, data: { status: 'RESOLVED', resolvedAt: now } });
-    // The recipient says the point is dealt with. That is a company response, not a closure: only an administrator
-    // or editor closes an observation.
-    if (email.observationId && email.observation && email.observation.status !== 'RESOLVED') {
-      const next = ['SENT', 'TO_RELAUNCH'].includes(email.observation.status) ? 'WAITING' : email.observation.status;
-      await this.prisma.observationResponse.create({ data: { observationId: email.observationId, source: 'PORTAL', message: 'L’entreprise indique avoir traité ce point (lien du mail).', companyId: email.observation.companyId } });
-      if (next !== email.observation.status) await this.prisma.observation.update({ where: { id: email.observationId }, data: { status: 'WAITING' } });
-      await this.prisma.observationHistory.create({ data: { observationId: email.observationId, fromStatus: email.observation.status, toStatus: next, note: 'L’entreprise indique avoir traité ce point (lien du mail)' } });
-    }
-    await this.prisma.activityLog.create({ data: { projectId: email.projectId, action: 'Point déclaré traité par le destinataire du mail', entityType: 'GeneratedEmail', entityId: email.id } });
-    return updated;
-  }
 
   // ---- Direct "send this observation to a company" workflow ----
 

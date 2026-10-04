@@ -13,6 +13,7 @@
 - `JWT_REFRESH_SECRET` : deuxième secret distinct.
 
 ### Optionnel
+- En production (`NODE_ENV="production"` ou `PUBLIC_APP_URL` renseignée), `/register` est fermée même si aucun compte n'existe : le premier administrateur est créé sur le serveur avec `npm --workspace back run admin:create` (voir `docs/DEPLOYMENT.md`).
 - `ALLOW_PUBLIC_REGISTRATION` : la page `/register` ne sert qu'à créer le tout premier compte (administrateur). Dès qu'un compte existe, elle redirige vers la connexion et l'API refuse l'inscription ; les autres utilisateurs sont ajoutés par un administrateur dans Paramètres. Mettre `true` uniquement pour rouvrir l'inscription publique.
 - `ANTHROPIC_API_KEY` : nécessaire uniquement pour analyser automatiquement le contenu des PDF importés (Claude).
 - `ANTHROPIC_MODEL` : modèle Claude utilisé par l'analyse IA, par défaut `claude-opus-5-5`.

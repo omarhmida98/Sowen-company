@@ -8,9 +8,11 @@ import type { AuthUser } from './auth.types';
 export class AuthController {
   constructor(private service: AuthService) {}
   @Public() @Get('registration') async registration() { return { open: await this.service.registrationOpen() }; }
-  @Public() @Post('register') register(@Body() dto: RegisterDto) { return this.service.register(dto); }
+  @Public() @Post('register') register(@Body() dto: RegisterDto, @Ip() ip: string) { return this.service.register(dto, ip); }
   @Public() @Post('login') login(@Body() dto: LoginDto, @Ip() ip: string) { return this.service.login(dto, ip); }
   @Public() @Post('refresh') refresh(@Body() dto: RefreshDto, @Ip() ip: string) { return this.service.refresh(dto, ip); }
+  // Ends the session on the server. The refresh token identifies it, so signing out works even when the access token has expired.
+  @Public() @Post('logout') @HttpCode(200) logout(@Body() dto: RefreshDto, @Ip() ip: string) { return this.service.logout(dto.refreshToken, ip); }
   @Get('me') me(@CurrentUser() user: AuthUser) { return this.service.me(user.sub); }
   @Post('change-password') @HttpCode(200) changePassword(@Body() dto: ChangePasswordDto, @CurrentUser() user: AuthUser, @Ip() ip: string) { return this.service.changePassword(user.sub, dto, ip); }
   // The token travels in the body, never in the URL, so it does not end up in request logs.

@@ -25,9 +25,12 @@ export class AuthGuard implements CanActivate {
     // The token proves who is calling; what they may do is read from the database on every request. A removed user,
     // a changed role, or a password change or reset (token version) therefore takes effect immediately, without
     // waiting for the access token to expire.
-    const user = await this.prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, email: true, role: true, organizationId: true, tokenVersion: true, passwordHash: true } });
-    if (!user || !user.passwordHash || (payload.ver ?? 0) !== user.tokenVersion) throw new UnauthorizedException('Invalid or expired access token');
-    req.user = { sub: user.id, email: user.email, role: user.role, organizationId: user.organizationId } satisfies AuthUser;
+    // The token also names a server-side session: signing out (or a detected token theft) revokes it, and the token
+    // is refused from then on even though it has not expired.
+    const session = payload.sid ? await this.prisma.authSession.findUnique({ where: { id: payload.sid }, select: { userId: true, revokedAt: true, expiresAt: true, user: { select: { id: true, email: true, role: true, organizationId: true, tokenVersion: true, passwordHash: true } } } }) : null;
+    const user = session?.user;
+    if (!session || session.revokedAt || session.expiresAt.getTime() <= Date.now() || session.userId !== payload.sub || !user || !user.passwordHash || (payload.ver ?? 0) !== user.tokenVersion) throw new UnauthorizedException('Invalid or expired access token');
+    req.user = { sub: user.id, email: user.email, role: user.role, organizationId: user.organizationId, sid: payload.sid } satisfies AuthUser;
     return true;
   }
 }

@@ -1,4 +1,4 @@
-import {BadRequestException,ForbiddenException,Injectable,Logger,NotFoundException,OnModuleInit} from '@nestjs/common';
+import {BadRequestException,ForbiddenException,HttpException,Injectable,Logger,NotFoundException,OnModuleInit} from '@nestjs/common';
 import {ConfigService} from '@nestjs/config';
 import {EvidenceType} from '@prisma/client';
 import {PrismaService} from '../prisma/prisma.service';
@@ -7,6 +7,8 @@ import {MailerService} from '../mailer/mailer.service';
 import {fileResponse} from '../documents/documents.service';
 import {linkBase} from '../auth/account-links';
 import {accessState,companyStatus,portalSecret,portalToken,portalTtlDays,verifyPortalToken} from './portal-tokens';
+import {portalLimits,uploadRefusal} from './portal-limits';
+import {checkUpload} from '../common/upload-content';
 
 const INVALID='Ce lien est invalide, expiré ou révoqué.';
 const NOT_IN_SCOPE='Cette observation n’est pas accessible depuis ce portail.';
@@ -173,9 +175,31 @@ export class PortalService implements OnModuleInit{
     await this.p.observationHistory.create({data:{observationId:obs.id,fromStatus:obs.status as any,toStatus:next as any,note}});
   }
 
+  private limits(){return portalLimits({PORTAL_UPLOADS_PER_HOUR:this.config.get('PORTAL_UPLOADS_PER_HOUR'),PORTAL_MAX_FILES_PER_OBSERVATION:this.config.get('PORTAL_MAX_FILES_PER_OBSERVATION'),PORTAL_MAX_TOTAL_MB:this.config.get('PORTAL_MAX_TOTAL_MB'),PORTAL_RESPONSES_PER_HOUR:this.config.get('PORTAL_RESPONSES_PER_HOUR')})}
+
+  // What the company has already sent on this project: the quotas are per company and project, so regenerating
+  // the link does not reset them.
+  private async uploadCheck(access:{projectId:string;companyId:string},observationId:string,incomingBytes:number){
+    const sent=await this.p.observationEvidence.findMany({where:{submittedByCompany:true,observation:{projectId:access.projectId,companyId:access.companyId}},select:{observationId:true,createdAt:true,document:{select:{sizeBytes:true}}}});
+    const hourAgo=Date.now()-3600000;
+    const refusal=uploadRefusal({uploadsLastHour:sent.filter(e=>e.createdAt.getTime()>hourAgo).length,filesOnObservation:sent.filter(e=>e.observationId===observationId).length,totalBytes:sent.reduce((n,e)=>n+(e.document?.sizeBytes||0),0)},this.limits(),incomingBytes);
+    if(refusal)throw new HttpException(refusal.message,refusal.status);
+  }
+
+  // Called before the file is received (PortalUploadGuard): link, scope, state of the observation and quotas.
+  async assertUploadAllowed(token:string,observationId:string,announcedBytes=0){
+    const access=await this.access(token);
+    const obs=await this.scoped(access,observationId);
+    if(obs.status==='RESOLVED')throw new BadRequestException('Cette observation est clôturée : elle n’accepte plus de justificatif.');
+    // The announced size includes the form envelope; the exact size is checked again once the file is read.
+    await this.uploadCheck(access,obs.id,Math.max(0,announcedBytes-2048));
+  }
+
   async addResponse(token:string,observationId:string,message:string){
     const access=await this.access(token);
     const obs=await this.scoped(access,observationId);
+    const recent=await this.p.observationResponse.count({where:{source:'PORTAL',companyId:access.companyId,observation:{projectId:access.projectId},createdAt:{gt:new Date(Date.now()-3600000)}}});
+    if(recent>=this.limits().responsesPerHour)throw new HttpException('Trop de messages envoyés en peu de temps. Réessayez dans une heure.',429);
     if(obs.status==='RESOLVED')throw new BadRequestException('Cette observation est clôturée : elle n’accepte plus de réponse.');
     const text=String(message||'').trim();
     if(!text)throw new BadRequestException('Le message est obligatoire.');
@@ -191,6 +215,8 @@ export class PortalService implements OnModuleInit{
     const obs=await this.scoped(access,observationId);
     if(obs.status==='RESOLVED')throw new BadRequestException('Cette observation est clôturée : elle n’accepte plus de justificatif.');
     if(!Object.values(EvidenceType).includes(type as EvidenceType))throw new BadRequestException('Type de justificatif invalide.');
+    checkUpload(file,'general');
+    await this.uploadCheck(access,obs.id,file.size);
     const storageKey=await this.storage.save({projectId:obs.projectId,folder:'evidence',originalName:file.originalname,buffer:file.buffer,contentType:file.mimetype});
     let ev;
     try{

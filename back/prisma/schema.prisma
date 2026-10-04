@@ -165,6 +165,26 @@ model User {
   activities     ActivityLog[]
   notifications  Notification[]
   tokens         UserToken[]
+  sessions       AuthSession[]
+}
+// One row per signed-in device. Signing out, a password change or a reset revokes it: the access and refresh tokens
+// that carry its id stop working at once. The refresh token is replaced at every renewal (`refreshId`); presenting
+// an older one revokes the session.
+model AuthSession {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshId         String
+  previousRefreshId String?
+  rotatedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  lastUsedAt        DateTime  @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  revokedReason     String?
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 enum UserTokenType {
@@ -506,7 +526,6 @@ model GeneratedEmail {
   reminderCount Int         @default(0)
   providerMessageId String?
   errorMessage  String?
-  resolveToken  String      @unique @default(uuid())
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   events        EmailEvent[]

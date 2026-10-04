@@ -4,6 +4,8 @@
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
@@ -57,6 +59,7 @@ function world(options: { env?: Record<string, string>; mail?: 'ok' | 'off' | 'f
     ] as Row[],
     tokens: [] as Row[],
     activity: [] as Row[],
+    sessions: [] as Row[],
   };
   const outbox: Row[] = [];
   const env: Record<string, string> = { JWT_ACCESS_SECRET: 'access-secret-for-tests-0123456789', JWT_REFRESH_SECRET: 'refresh-secret-for-tests-9876543210', PUBLIC_APP_URL: 'https://app.sowen.example', ...options.env };
@@ -71,7 +74,7 @@ function world(options: { env?: Record<string, string>; mail?: 'ok' | 'off' | 'f
       findMany: async ({ where }: any) => db.users.filter(u => u.organizationId === where.organizationId).map(u => ({ ...u, tokens: db.tokens.filter(t => t.userId === u.id && !t.usedAt).sort((a, b) => b.createdAt - a.createdAt).slice(0, 1) })),
       create: async ({ data }: any) => { const u = { id: `user-${++n}`, tokenVersion: 0, passwordChangedAt: null, createdAt: new Date(), ...data }; db.users.push(u); return { ...u }; },
       update: async ({ where, data }: any) => ({ ...applyData(db.users.find(u => u.id === where.id)!, data) }),
-      delete: async ({ where }: any) => { db.users = db.users.filter(u => u.id !== where.id); db.tokens = db.tokens.filter(t => t.userId !== where.id); },
+      delete: async ({ where }: any) => { db.users = db.users.filter(u => u.id !== where.id); db.tokens = db.tokens.filter(t => t.userId !== where.id); db.sessions = db.sessions.filter(s => s.userId !== where.id); },
     },
     userToken: {
       create: async ({ data }: any) => { const t = { id: `token-${++n}`, usedAt: null, createdAt: Date.now() + n, ...data }; db.tokens.push(t); return t; },
@@ -79,6 +82,13 @@ function world(options: { env?: Record<string, string>; mail?: 'ok' | 'off' | 'f
       findFirst: async ({ where }: any) => db.tokens.filter(t => t.userId === where.userId && !t.usedAt).sort((a, b) => b.createdAt - a.createdAt)[0] || null,
       updateMany: async ({ where, data }: any) => { const t = db.tokens.find(x => x.id === where.id && !x.usedAt && x.expiresAt > new Date()); if (!t) return { count: 0 }; Object.assign(t, data); return { count: 1 }; },
       deleteMany: async ({ where }: any) => { const before = db.tokens.length; db.tokens = db.tokens.filter(t => !(t.userId === where.userId && (!('usedAt' in where) || !t.usedAt))); return { count: before - db.tokens.length }; },
+    },
+    // Stands for the AuthSession table (server-side sessions).
+    authSession: {
+      create: async ({ data }: any) => { const s = { id: `session-${++n}`, previousRefreshId: null, rotatedAt: null, revokedAt: null, revokedReason: null, createdAt: new Date(), ...data }; db.sessions.push(s); return { ...s }; },
+      findUnique: async ({ where, select }: any) => { const s = db.sessions.find(x => x.id === where.id); if (!s) return null; const user = db.users.find(u => u.id === s.userId); return select?.user ? (user ? { ...s, user: { ...user } } : null) : { ...s }; },
+      updateMany: async ({ where, data }: any) => { const rows = db.sessions.filter(s => (!where.id || s.id === where.id) && (!where.userId || s.userId === where.userId) && (!('revokedAt' in where) || !s.revokedAt) && (!where.refreshId || s.refreshId === where.refreshId)); rows.forEach(s => Object.assign(s, data)); return { count: rows.length }; },
+      deleteMany: async ({ where }: any) => { const before = db.sessions.length; db.sessions = db.sessions.filter(s => !(s.userId === where.userId && s.expiresAt < where.expiresAt.lt)); return { count: before - db.sessions.length }; },
     },
     organization: { findUnique: async ({ where }: any) => db.organizations.find(o => o.id === where.id) || null },
     activityLog: { create: async ({ data }: any) => { db.activity.push(data); } },
@@ -581,16 +591,24 @@ test('tokens are still verified: a forged, malformed or wrong-kind token is refu
   await assert.rejects(() => w.request(session.refreshToken), status(401), 'a refresh token is not an access token');
   await assert.rejects(() => w.auth.refresh({ refreshToken: session.accessToken }, '10.0.0.1'), status(401), 'and the reverse');
   // The role claimed inside a token is ignored: only the database decides.
-  const stale = await new JwtService({}).signAsync({ sub: 'consultant', email: 'consultant@example.com', role: 'ADMIN', organizationId: ORG, ver: 0 }, { secret: w.env.JWT_ACCESS_SECRET });
+  await w.auth.login({ email: 'consultant@example.com', password: GOOD }, '10.0.0.1');
+  const sid = w.db.sessions.find(s => s.userId === 'consultant')!.id;
+  const stale = await new JwtService({}).signAsync({ sub: 'consultant', email: 'consultant@example.com', role: 'ADMIN', organizationId: ORG, ver: 0, sid }, { secret: w.env.JWT_ACCESS_SECRET });
   await assert.rejects(() => w.request(stale, ['ADMIN']), status(403));
 });
 
-test('sessions opened before this version (no token version) keep working until a password change', async () => {
+test('a correctly signed token that names no server-side session is refused', async () => {
   const w = world();
-  const legacy = await new JwtService({}).signAsync({ sub: 'editor', email: 'editor@example.com', role: 'EDITOR', organizationId: ORG }, { secret: w.env.JWT_ACCESS_SECRET });
-  assert.equal((await w.request(legacy)).sub, 'editor');
-  await w.auth.changePassword('editor', { currentPassword: GOOD, newPassword: BETTER, confirmPassword: BETTER }, '10.0.0.1');
-  await assert.rejects(() => w.request(legacy), status(401));
+  const sign = (payload: Row, secret: string) => new JwtService({}).signAsync(payload, { secret });
+  const identity = { sub: 'editor', email: 'editor@example.com', role: 'EDITOR', organizationId: ORG, ver: 0 };
+  await assert.rejects(async () => w.request(await sign(identity, w.env.JWT_ACCESS_SECRET)), status(401), 'tokens issued before server-side sessions');
+  await assert.rejects(async () => w.request(await sign({ ...identity, sid: 'no-such-session' }, w.env.JWT_ACCESS_SECRET)), status(401));
+  await assert.rejects(async () => w.auth.refresh({ refreshToken: await sign({ ...identity, sid: 'no-such-session', rid: 'x' }, w.env.JWT_REFRESH_SECRET) }, '10.0.0.1'), status(401));
+  // a session of somebody else cannot be borrowed
+  const other = await w.auth.login({ email: 'admin@example.com', password: GOOD }, '10.0.0.1');
+  const sid = w.db.sessions.find(s => s.userId === 'admin')!.id;
+  await assert.rejects(async () => w.request(await sign({ ...identity, sid }, w.env.JWT_ACCESS_SECRET)), status(401));
+  assert.equal((await w.request(other.accessToken)).sub, 'admin');
 });
 
 test('registration applies the same password policy', async () => {
@@ -599,4 +617,105 @@ test('registration applies the same password policy', async () => {
   await assert.rejects(() => w.auth.register({ email: 'first@example.com', password: 'password1', organizationName: 'X', displayName: 'First' }), status(400));
   const session: any = await w.auth.register({ email: 'first@example.com', password: GOOD, organizationName: 'X', displayName: 'First' });
   assert.equal(session.user.role, 'ADMIN');
+});
+
+// ---------- server-side sessions: sign-out, rotation, theft detection ----------
+
+test('signing out revokes the session on the server: its access and refresh tokens stop working at once', async () => {
+  const w = world();
+  const session = await w.auth.login({ email: 'editor@example.com', password: GOOD }, '10.0.0.1');
+  const other = await w.auth.login({ email: 'editor@example.com', password: GOOD }, '10.0.0.2');
+  assert.equal((await w.request(session.accessToken)).sub, 'editor');
+  assert.deepEqual(await w.auth.logout(session.refreshToken, '10.0.0.1'), { loggedOut: true });
+  await assert.rejects(() => w.request(session.accessToken), status(401), 'a copied access token is useless after sign-out');
+  await assert.rejects(() => w.auth.refresh({ refreshToken: session.refreshToken }, '10.0.0.1'), status(401), 'a copied refresh token cannot be used for 30 days');
+  assert.equal((await w.request(other.accessToken)).sub, 'editor', 'the other device stays signed in');
+  assert.equal(w.db.sessions.filter(s => s.revokedAt).length, 1);
+  assert.ok(w.db.activity.some(a => a.action === 'Déconnexion' && a.userId === 'editor'));
+  // signing out twice, or with rubbish, answers the same and reveals nothing
+  assert.deepEqual(await w.auth.logout(session.refreshToken), { loggedOut: true });
+  assert.deepEqual(await w.auth.logout('not-a-token'), { loggedOut: true });
+  assert.deepEqual(await w.auth.logout(other.accessToken), { loggedOut: true }, 'an access token is not accepted as proof');
+  assert.equal((await w.request(other.accessToken)).sub, 'editor');
+});
+
+test('each renewal replaces the refresh token; an old one presented later ends the whole session', async () => {
+  const w = world();
+  const first = await w.auth.login({ email: 'editor@example.com', password: GOOD }, '10.0.0.1');
+  const second = await w.auth.refresh({ refreshToken: first.refreshToken }, '10.0.0.1');
+  assert.notEqual(second.refreshToken, first.refreshToken);
+  assert.equal(w.db.sessions.length, 1, 'the same session continues');
+  // just after the renewal, the token it replaced still gets the current one (two tabs, parallel requests)
+  const repeat = await w.auth.refresh({ refreshToken: first.refreshToken }, '10.0.0.1');
+  const rid = (token: string) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).rid;
+  assert.equal(rid(repeat.refreshToken), rid(second.refreshToken), 'no second rotation');
+  // later, the replaced token is a copy somebody kept: the session ends for everyone holding it
+  w.db.sessions[0].rotatedAt = new Date(Date.now() - 60000);
+  await assert.rejects(() => w.auth.refresh({ refreshToken: first.refreshToken }, '203.0.113.7'), status(401));
+  await assert.rejects(() => w.auth.refresh({ refreshToken: second.refreshToken }, '10.0.0.1'), status(401), 'the legitimate token is revoked too');
+  await assert.rejects(() => w.request(second.accessToken), status(401));
+  assert.equal(w.db.sessions[0].revokedReason, 'refresh-token-reuse');
+  assert.ok(w.db.activity.some(a => /ancien jeton de session/.test(a.action)));
+});
+
+test('a password change, an administrator reset and an accepted link end every session of that user', async () => {
+  const w = world();
+  const phone = await w.auth.login({ email: 'editor@example.com', password: GOOD }, '10.0.0.1');
+  const laptop = await w.auth.login({ email: 'editor@example.com', password: GOOD }, '10.0.0.2');
+  const changed: any = await w.auth.changePassword('editor', { currentPassword: GOOD, newPassword: BETTER, confirmPassword: BETTER }, '10.0.0.2');
+  for (const old of [phone, laptop]) await assert.rejects(() => w.request(old.accessToken), status(401));
+  assert.equal((await w.request(changed.accessToken)).sub, 'editor', 'the device that changed the password continues with a new session');
+  await w.users.resetPassword('editor', ORG, 'admin');
+  await assert.rejects(() => w.request(changed.accessToken), status(401));
+  assert.ok(w.db.sessions.filter(s => s.userId === 'editor').every(s => s.revokedAt));
+});
+
+test('an expired session is refused even if its tokens are still signed and unexpired', async () => {
+  const w = world();
+  const session = await w.auth.login({ email: 'editor@example.com', password: GOOD }, '10.0.0.1');
+  w.db.sessions[0].expiresAt = new Date(Date.now() - 1000);
+  await assert.rejects(() => w.request(session.accessToken), status(401));
+  await assert.rejects(() => w.auth.refresh({ refreshToken: session.refreshToken }, '10.0.0.1'), status(401));
+});
+
+test('sign-ins and failed sign-ins are recorded without the password, the email typed or any token', async () => {
+  const w = world();
+  await assert.rejects(() => w.auth.login({ email: 'editor@example.com', password: 'Mauvais-mot-de-passe-1' }, '203.0.113.5'), status(401));
+  await assert.rejects(() => w.auth.login({ email: 'nobody@example.com', password: 'Mauvais-mot-de-passe-2' }, '203.0.113.5'), status(401));
+  const ok = await w.auth.login({ email: 'editor@example.com', password: GOOD }, '203.0.113.5');
+  const events = w.db.activity.filter(a => a.entityType === 'Session');
+  assert.deepEqual(events.map(a => [a.action, a.userId, a.metadata.ip]), [['Échec de connexion', 'editor', '203.0.113.5'], ['Connexion', 'editor', '203.0.113.5']], 'an unknown account leaves no row');
+  const json = JSON.stringify(w.db.activity);
+  for (const secret of ['Mauvais-mot-de-passe', GOOD, 'nobody@example.com', ok.accessToken, ok.refreshToken, w.db.sessions[0].refreshId]) assert.ok(!json.includes(secret), 'nothing secret is stored');
+});
+
+// ---------- first administrator ----------
+
+test('on a real installation the first visitor cannot make themselves administrator of an empty database', async () => {
+  const empty = (env: Record<string, string>) => { const w = world({ env }); w.db.users.length = 0; (w.prisma as any).$transaction = async (fn: any) => fn({ organization: { create: async ({ data }: any) => ({ id: 'org-new', ...data }) }, user: w.prisma.user }); return w; };
+  const first = { email: 'first@example.com', password: GOOD, organizationName: 'X', displayName: 'First' };
+  for (const env of [{ NODE_ENV: 'production', PUBLIC_APP_URL: 'https://app.sowen.example' }, { NODE_ENV: 'production', PUBLIC_APP_URL: '' }, { NODE_ENV: '', PUBLIC_APP_URL: 'https://app.sowen.example' }]) {
+    const w = empty(env);
+    assert.equal(await w.auth.registrationOpen(), false, JSON.stringify(env));
+    // several visitors arriving together are all refused: there is no window to win
+    const attempts = await Promise.allSettled([1, 2, 3].map(i => w.auth.register({ ...first, email: `racer${i}@example.com` }, `198.51.100.${i}`)));
+    assert.ok(attempts.every(a => a.status === 'rejected' && (a.reason as any).status === 403));
+    assert.equal(w.db.users.length, 0);
+  }
+  // local development keeps the convenience of creating the first account from the page
+  const dev = empty({ NODE_ENV: '', PUBLIC_APP_URL: '' });
+  assert.equal(await dev.auth.registrationOpen(), true);
+  assert.equal(((await dev.auth.register(first, '127.0.0.1')) as any).user.role, 'ADMIN');
+  assert.equal(await dev.auth.registrationOpen(), false, 'and it closes after the first account');
+  // public sign-up is an explicit choice
+  assert.equal(await empty({ NODE_ENV: 'production', PUBLIC_APP_URL: 'https://app.sowen.example', ALLOW_PUBLIC_REGISTRATION: 'true' }).auth.registrationOpen(), true);
+});
+
+test('the first administrator is created from the server, with a single-use link and no password', () => {
+  const script = readFileSync(join(__dirname, '..', 'scripts', 'create-admin.ts'), 'utf8');
+  assert.match(script, /passwordHash: null/);
+  assert.match(script, /tokenHash: hashToken\(token\)/, 'only the hash of the link is stored');
+  assert.match(script, /--additional-organization/);
+  assert.doesNotMatch(script, /--password|bcrypt/);
+  assert.equal(JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')).scripts['admin:create'], 'tsx scripts/create-admin.ts');
 });

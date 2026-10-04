@@ -3,6 +3,7 @@ import {EvidenceReviewStatus} from '@prisma/client';
 import {PrismaService} from '../prisma/prisma.service';
 import {StorageService} from '../storage/storage.service';
 import {fileResponse} from '../documents/documents.service';
+import {checkUpload} from '../common/upload-content';
 
 @Injectable()
 export class EvidenceService{
@@ -20,6 +21,7 @@ export class EvidenceService{
     const obs=await this.p.observation.findUnique({where:{id:observationId},include:{project:true}});
     if(!obs)throw new NotFoundException('Observation not found');
     if(obs.project.organizationId!==organizationId)throw new ForbiddenException('Observation does not belong to your organization');
+    checkUpload(file,'general');
     const storageKey=await this.storage.save({projectId:obs.projectId,folder:'evidence',originalName:file.originalname,buffer:file.buffer,contentType:file.mimetype});
     let ev;
     try{

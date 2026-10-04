@@ -15,8 +15,9 @@ const allowedGeneralMimeTypes = new Set([
   'audio/webm',
 ]);
 
+// The announced type is only a first filter: the content is checked once the file is read (upload-content.ts).
 export const generalUploadOptions: MulterOptions = {
-  limits: { fileSize: MAX_UPLOAD_BYTES },
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (allowedGeneralMimeTypes.has(file.mimetype)) return cb(null, true);
     cb(new BadRequestException('Unsupported file type') as unknown as Error, false);
@@ -24,7 +25,7 @@ export const generalUploadOptions: MulterOptions = {
 };
 
 export const pdfUploadOptions: MulterOptions = {
-  limits: { fileSize: MAX_UPLOAD_BYTES },
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     const ok = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
     if (ok) return cb(null, true);

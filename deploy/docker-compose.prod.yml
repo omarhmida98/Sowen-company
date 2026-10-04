@@ -1,0 +1,84 @@
+# SOWEN in production. See docs/DEPLOYMENT.md.
+#
+#   cd deploy
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+#
+# Nothing here is reachable from the internet:
+#   - PostgreSQL has no "ports:" entry at all. Only the API container can reach it.
+#   - the API (4000) and the web application (3000) are published on 127.0.0.1 only. The reverse proxy of the
+#     server (Nginx, with HTTPS) is the only way in.
+# Docker publishes ports past the firewall (ufw): keeping "127.0.0.1:" in front of every port is what protects them.
+name: sowen
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sowen}
+      # Never the development password of the repository. Letters and digits only (it goes into a URL):
+      #   openssl rand -hex 32
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-sowen}
+    volumes:
+      - sowen_postgres_data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sowen} -d ${POSTGRES_DB:-sowen}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  api:
+    build:
+      context: ..
+      dockerfile: back/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Secrets and settings of the API (JWT secrets, portal secret, email, AI…). Not in Git.
+    env_file: ./api/.env
+    environment:
+      NODE_ENV: production
+      API_PORT: "4000"
+      # Inside the container the API must listen on every interface; the port is published on 127.0.0.1 below.
+      API_HOST: 0.0.0.0
+      # One reverse proxy (Nginx on the host) in front of the API.
+      TRUST_PROXY: "1"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sowen}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sowen}?schema=public
+      WEB_URL: ${PUBLIC_APP_URL:?Set PUBLIC_APP_URL in deploy/.env}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL}
+      STORAGE_LOCAL_DIR: /app/back/uploads
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - sowen_uploads:/app/back/uploads
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  web:
+    build:
+      context: ..
+      dockerfile: front/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_APP_URL}/api
+        NEXT_PUBLIC_APP_URL: ${PUBLIC_APP_URL}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    # The web application never talks to the database: it is on a network of its own.
+    networks: [frontend]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  backend:
+  frontend:
+
+volumes:
+  sowen_postgres_data:
+  sowen_uploads:

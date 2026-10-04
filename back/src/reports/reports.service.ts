@@ -3,6 +3,7 @@ import pdf from 'pdf-parse';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { StorageService } from '../storage/storage.service';
+import { checkUpload } from '../common/upload-content';
 import { PROTECTION_LABEL, findingKey, protectionReasons } from '../observations/observation-rules';
 import { describeFailure } from './report-failure';
 import { REPORT_ANALYSIS_SCHEMA, REPORT_ANALYSIS_SYSTEM, VALID_SEVERITIES, documentAnalysisOf, validateReportAnalysis } from './report-analysis';
@@ -130,9 +131,8 @@ export class ReportsService {
 
   async uploadAndAnalyze(projectId: string, issuer: string | undefined, file: Express.Multer.File, organizationId: string, userId: string) {
     await this.assertProject(projectId, organizationId);
-    if (file.mimetype !== 'application/pdf' && !file.originalname.toLowerCase().endsWith('.pdf')) {
-      throw new BadRequestException('Only PDF reports are supported');
-    }
+    // The content must be a PDF, whatever the file is called or announced as.
+    checkUpload(file, 'pdf');
 
     const storageKey = await this.storage.save({ projectId, folder: 'reports', originalName: file.originalname, buffer: file.buffer, contentType: file.mimetype });
     this.logger.log(`Report file stored as ${storageKey} (${file.size} bytes)`);

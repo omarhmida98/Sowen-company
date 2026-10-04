@@ -8,7 +8,8 @@ services:
       POSTGRES_PASSWORD: sowen_dev_password
       POSTGRES_DB: sowen
     ports:
-      - "5432:5432"
+      # Local development only: reachable from this machine, never from the network.
+      - "127.0.0.1:5432:5432"
     volumes:
       - sowen_postgres_data:/var/lib/postgresql/data
 volumes:

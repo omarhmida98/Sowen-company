@@ -86,6 +86,7 @@ export class UsersService{
     if(id===actorId)throw new BadRequestException('Pour votre propre compte, utilisez « Changer mon mot de passe ».');
     const target=await this.target(id,organizationId);
     await this.p.user.update({where:{id},data:{passwordHash:null,tokenVersion:{increment:1}}});
+    await this.p.authSession.updateMany({where:{userId:id,revokedAt:null},data:{revokedAt:new Date(),revokedReason:'password-reset'}});
     const delivery=await this.issue(target,target.passwordHash?'PASSWORD_RESET':'INVITATION',organizationId,{id:actorId});
     await this.p.activityLog.create({data:{userId:actorId,action:`Mot de passe réinitialisé par un administrateur (${target.email})`,entityType:'User',entityId:id,metadata:{delivery:delivery.delivery}}});
     return delivery;

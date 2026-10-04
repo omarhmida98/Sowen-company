@@ -16,4 +16,7 @@ front/.env.*
 back/uploads
 uploads
 *.log
-.DS_Store
+.DS_Storedeploy
+docs
+**/test
+**/*.tsbuildinfo

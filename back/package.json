@@ -13,7 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "storage:migrate": "tsx scripts/migrate-storage.ts",
-    "rules:assign-legacy": "tsx scripts/assign-legacy-rules.ts"
+    "rules:assign-legacy": "tsx scripts/assign-legacy-rules.ts",
+    "admin:create": "tsx scripts/create-admin.ts",
+    "prisma:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

@@ -38,6 +38,8 @@ Le conteneur `sowen-postgres` doit être `Up`.
 
 ## 3. Préparer la base
 
+En développement local uniquement. En production : `npm run db:deploy` (`prisma migrate deploy`), voir `docs/DEPLOYMENT.md`.
+
 ```powershell
 npm run db:generate
 npm run db:migrate
@@ -75,7 +77,7 @@ Tester :
 
 - API : `http://localhost:4000/api/health`
 - Front : `http://localhost:3000`
-- Premier compte : `http://localhost:3000/register` (fermé ensuite ; `ALLOW_PUBLIC_REGISTRATION="true"` dans `back/.env` pour le rouvrir)
+- Premier compte (développement local ; en production voir `docs/DEPLOYMENT.md`) : `http://localhost:3000/register` (fermé ensuite ; `ALLOW_PUBLIC_REGISTRATION="true"` dans `back/.env` pour le rouvrir)
 
 ## 6. Smoke test métier
 

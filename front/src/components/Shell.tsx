@@ -4,7 +4,7 @@ import {useEffect,useRef,useState} from 'react';
 import {usePathname,useRouter} from 'next/navigation';
 import {Building2, ClipboardCheck, FileSearch, LayoutDashboard, BookOpenCheck, Users, Settings, FolderOpen, Activity, Mail, Bell, LogOut, Layers3, Search, BarChart3, Plus, X} from 'lucide-react';
 import {PreferenceControls} from './Preferences';
-import {api,clearSession} from '@/lib/api';
+import {api,clearSession,logout as endSession} from '@/lib/api';
 import {can} from '@/lib/permissions';
 import {SESSION_EVENT} from '@/lib/session';
 const nav=[{href:'/',label:'Tableau de bord',icon:LayoutDashboard},{href:'/projects/new',label:'Nouveau projet',icon:Building2},{href:'/observations',label:'Observations',icon:ClipboardCheck},{href:'/reports',label:'Rapports BC',icon:FileSearch},{href:'/rules',label:'Règles',icon:BookOpenCheck},{href:'/lots',label:'Lots',icon:Layers3},{href:'/companies',label:'Entreprises',icon:Users},{href:'/documents',label:'Documents',icon:FolderOpen},{href:'/mails',label:'Mails & relances',icon:Mail},{href:'/activity',label:'Activité',icon:Activity},{href:'/search',label:'Recherche',icon:Search},{href:'/management',label:'Pilotage',icon:BarChart3},{href:'/notifications',label:'Notifications',icon:Bell},{href:'/settings',label:'Paramètres',icon:Settings}];
@@ -24,7 +24,7 @@ export function Shell({children}:{children:React.ReactNode}){
   useEffect(()=>{let alive=true;(async()=>{const token=localStorage.getItem('sowen_access_token');const refresh=localStorage.getItem('sowen_refresh_token');if(!token&&!refresh){setAuth('unauthenticated');if(alive)router.replace(`/login?next=${encodeURIComponent(pathname)}`);return}try{const me:any=await api('/auth/me');if(!alive)return;const normalized={id:me.id,email:me.email,displayName:me.displayName,role:me.role,organizationId:me.organizationId};localStorage.setItem('sowen_user',JSON.stringify(normalized));window.dispatchEvent(new Event(SESSION_EVENT));setUser(normalized);setAuth('authenticated')}catch{clearSession();setAuth('unauthenticated');if(alive)router.replace('/login')}})();return()=>{alive=false}},[pathname,router]);
   useEffect(()=>{if(auth!=='authenticated')return;let alive=true;const load=()=>api<any>('/notifications/summary').then(r=>{if(alive)setNotificationCount(r.unread||0)}).catch(()=>{});load();const timer=setInterval(load,60000);return()=>{alive=false;clearInterval(timer)}},[auth]);
   useEffect(()=>{if(!menuOpen)return;const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape'){setMenuOpen(false);menuTriggerRef.current?.focus()}};window.addEventListener('keydown',onKey);const el=menuRef.current;if(el){(el.querySelector('a,button') as HTMLElement|null)?.focus()}document.body.style.overflow='hidden';return()=>{window.removeEventListener('keydown',onKey);document.body.style.overflow=''}},[menuOpen]);
-  function logout(){clearSession();router.push('/login')}
+  async function logout(){await endSession();router.push('/login')}
   const closeMenu=()=>{setMenuOpen(false);menuTriggerRef.current?.focus()};
   const isActive=(href:string)=>pathname===href||(href!=='/'&&pathname.startsWith(href));
   // Entries that only lead to an action the role cannot perform are not listed.

@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { checkUpload } from '../common/upload-content';
 
 export function fileResponse(buffer: Buffer, name: string | null | undefined, mimeType: string | null | undefined) {
   return new StreamableFile(buffer, {
@@ -15,6 +16,7 @@ export class DocumentsService {
   list(organizationId: string, projectId?: string) { return this.prisma.document.findMany({ where: { ...(projectId ? { projectId } : {}), project: { organizationId } }, orderBy: { uploadedAt: 'desc' } }); }
   async upload(projectId: string, type: any, file: Express.Multer.File, organizationId: string, userId: string) {
     await this.assertProject(projectId, organizationId);
+    checkUpload(file, 'general');
     const storageKey = await this.storage.save({ projectId, folder: 'documents', originalName: file.originalname, buffer: file.buffer, contentType: file.mimetype });
     try {
       const doc = await this.prisma.document.create({ data: { projectId, type, name: file.originalname, storageKey, mimeType: file.mimetype, sizeBytes: file.size } });

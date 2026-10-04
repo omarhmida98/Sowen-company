@@ -1,0 +1,94 @@
+# Nginx in front of SOWEN (one server, HTTPS). Copy to /etc/nginx/conf.d/sowen.conf, replace app.example.com and
+# the certificate paths, then:  nginx -t && systemctl reload nginx
+#
+# The API and the web application only listen on 127.0.0.1 (deploy/docker-compose.prod.yml): this file is the only
+# way in from the internet. The API is started with TRUST_PROXY="1" and reads the visitor's address from the
+# X-Forwarded-For header written below.
+
+# Portal and invitation links are credentials: the access log records them with the token masked.
+# (/api/portal/access… is the internal management route and carries no token.)
+map $request_uri $sowen_logged_uri {
+    default $request_uri;
+    "~^(?<sowen_prefix>/(?:api/)?(?:portal|invitation)/)(?!access(?:[/?]|$))[^/?]+(?<sowen_rest>.*)$" "$sowen_prefix[redacted]$sowen_rest";
+}
+# No referrer and no query string of other requests is needed either.
+log_format sowen '$remote_addr [$time_local] "$request_method $sowen_logged_uri $server_protocol" '
+                 '$status $body_bytes_sent $request_time "$http_user_agent"';
+
+# Request limits per visitor address, in front of the application's own limits.
+limit_req_zone $binary_remote_addr zone=sowen_auth:10m   rate=30r/m;
+limit_req_zone $binary_remote_addr zone=sowen_portal:10m rate=60r/m;
+limit_req_zone $binary_remote_addr zone=sowen_upload:10m rate=10r/m;
+limit_req_status 429;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name app.example.com;
+    # Same masked log format: a link opened over http is redirected, and must not be recorded with its token either.
+    access_log /var/log/nginx/sowen.access.log sowen;
+    # Certificate renewal (certbot --webroot) is answered in clear; everything else goes to HTTPS.
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name app.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/app.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:sowen_ssl:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    server_tokens off;
+    access_log /var/log/nginx/sowen.access.log sowen;
+    error_log  /var/log/nginx/sowen.error.log warn;
+
+    # A little above the application's 20 MB limit per file.
+    client_max_body_size 25m;
+    client_body_timeout 60s;
+
+    # The application sends its own security headers (CSP, nosniff, frame protection, referrer policy and, in
+    # production over HTTPS, HSTS). They are passed through unchanged.
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    # Replaced, not appended: whatever the visitor sent in this header is discarded.
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 180s;
+
+    # Sign-in, renewal, sign-out, invitation and password endpoints.
+    location ~ ^/api/auth/(login|register|refresh|logout|invitation|change-password) {
+        limit_req zone=sowen_auth burst=20 nodelay;
+        proxy_pass http://127.0.0.1:4000;
+    }
+
+    # Files sent by companies through their portal link.
+    location ~ ^/api/portal/[^/]+/evidence$ {
+        limit_req zone=sowen_upload burst=10 nodelay;
+        proxy_request_buffering on;
+        proxy_pass http://127.0.0.1:4000;
+    }
+
+    # The rest of the company portal.
+    location /api/portal/ {
+        limit_req zone=sowen_portal burst=40 nodelay;
+        proxy_pass http://127.0.0.1:4000;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+    }
+}

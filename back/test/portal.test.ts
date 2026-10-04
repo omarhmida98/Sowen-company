@@ -3,6 +3,10 @@
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { PortalUploadGuard } from '../src/portal/portal-upload.guard';
+import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { EmailsController } from '../src/emails/emails.controller';
 import { PortalService } from '../src/portal/portal.service';
 import { PortalController } from '../src/portal/portal.controller';
 import { accessState, companyStatus, portalSecret, portalSecretRequired, portalToken, portalTtlDays, redactTokens, verifyPortalToken } from '../src/portal/portal-tokens';
@@ -80,7 +84,7 @@ function world(options: { env?: Record<string, string> } = {}) {
       findMany: async ({ where }: any) => db.observations.filter(o => matchObservation(o, where)).map(o => ({ ...o, lot: o.lotName ? { name: o.lotName } : null, responses: db.responses.filter(r => r.observationId === o.id && r.source === 'PORTAL'), evidence: db.evidence.filter(e => e.observationId === o.id && e.submittedByCompany && e.documentId).map(withDoc) })),
       update: async ({ where, data }: any) => ({ ...Object.assign(db.observations.find(o => o.id === where.id)!, data) }),
     },
-    observationResponse: { create: async ({ data, select }: any) => { const row = { id: `resp-${++n}`, createdAt: new Date(), ...data }; db.responses.push(row); return select ? Object.fromEntries(Object.keys(select).map(k => [k, row[k]])) : { ...row }; } },
+    observationResponse: { count: async ({ where }: any) => db.responses.filter(r => r.source === where.source && r.companyId === where.companyId && r.createdAt > where.createdAt.gt).length, create: async ({ data, select }: any) => { const row = { id: `resp-${++n}`, createdAt: new Date(), ...data }; db.responses.push(row); return select ? Object.fromEntries(Object.keys(select).map(k => [k, row[k]])) : { ...row }; } },
     document: { create: async ({ data }: any) => { const row = { id: `doc-${++n}`, ...data }; db.documents.push(row); return { ...row }; } },
     observationEvidence: {
       create: async ({ data }: any) => { const row = { id: `ev-${++n}`, createdAt: new Date(), reviewStatus: 'PENDING', reviewNote: null, reviewedAt: null, ...data }; db.evidence.push(row); return withDoc(row); },
@@ -88,7 +92,7 @@ function world(options: { env?: Record<string, string> } = {}) {
         const e = db.evidence.find(x => x.id === where.id && (where.submittedByCompany === undefined || x.submittedByCompany === where.submittedByCompany) && (() => { const o = db.observations.find(y => y.id === x.observationId)!; return matchObservation(o, where.observation); })());
         return e ? { ...withDoc(e), ...(include?.observation ? { observation: { ...db.observations.find(o => o.id === e.observationId) } } : {}) } : null;
       },
-      findMany: async ({ where }: any) => db.evidence.filter(e => e.observationId === where.observationId).map(withDoc),
+      findMany: async ({ where }: any) => db.evidence.filter(e => where.observationId ? e.observationId === where.observationId : (where.submittedByCompany === undefined || e.submittedByCompany === where.submittedByCompany) && matchObservation(db.observations.find(o => o.id === e.observationId)!, where.observation)).map(withDoc),
       update: async ({ where, data }: any) => withDoc(Object.assign(db.evidence.find(e => e.id === where.id)!, data)),
     },
     observationHistory: { create: async ({ data }: any) => { db.history.push({ id: `h-${++n}`, createdAt: new Date(), ...data }); } },
@@ -100,7 +104,8 @@ function world(options: { env?: Record<string, string> } = {}) {
   // get() of the observation service needs relations this fake does not model; the calls under test do not read its result.
   (observations as any).get = async (id: string) => ({ ...db.observations.find(o => o.id === id) });
   const tokenOf = (link: string) => link.split('/portal/')[1];
-  const file = (name = 'attestation.pdf') => ({ originalname: name, buffer: Buffer.from(`content of ${name}`), mimetype: 'application/pdf', size: 20 }) as any;
+  // The content is what the name says: a real PDF header, or a real JPEG header for photos.
+  const file = (name = 'attestation.pdf') => ({ originalname: name, buffer: /\.jpe?g$/i.test(name) ? Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from(`content of ${name}`)]) : Buffer.from(`%PDF-1.4 content of ${name}`), mimetype: /\.jpe?g$/i.test(name) ? 'image/jpeg' : 'application/pdf', size: 20 }) as any;
   const open = async (companyId = 'A', projectId = 'P1') => { const a = await portal.create(companyId, projectId, undefined, ORG, USER); return { access: a, token: tokenOf(a.link!) }; };
   return { db, prisma, portal, evidence, observations, env, tokenOf, file, open, storage, config, mailer };
 }
@@ -583,13 +588,14 @@ test('email link: a button on the public address, or no button and a link for th
   assert.deepEqual(await prod.portal.emailLink('P1', 'A', { create: true }), { cta: null, link: null });
 });
 
-test('the "point traité" link of an email records a company response; it no longer closes the observation', async () => {
-  const w = world();
-  const prisma: any = { ...w.prisma, generatedEmail: { findUnique: async () => ({ id: 'mail-1', projectId: 'P1', observationId: 'o-a1', observation: { ...obs(w, 'o-a1') } }), update: async ({ data }: any) => ({ id: 'mail-1', ...data }) } };
-  await new EmailsService(prisma, w.mailer as any).resolve('some-token');
-  assert.equal(obs(w, 'o-a1').status, 'WAITING');
-  assert.equal(w.db.responses[0].source, 'PORTAL');
-  assert.equal(obs(w, 'o-a1').closedAt, undefined);
+test('the legacy public "point traité" link of emails is gone: no route, no method, no stored token', () => {
+  assert.equal(typeof (EmailsService.prototype as any).resolve, 'undefined');
+  const routes = Object.getOwnPropertyNames(EmailsController.prototype).filter(name => name !== 'constructor');
+  assert.ok(!routes.includes('resolve'));
+  // every route of the emails controller requires a signed-in user
+  for (const name of routes) assert.notEqual(Reflect.getMetadata(IS_PUBLIC_KEY, (EmailsController.prototype as any)[name]), true, name);
+  const schema = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
+  assert.doesNotMatch(schema, /resolveToken/);
 });
 
 // ---------- reminders ----------
@@ -639,4 +645,72 @@ test('writing to the company again after its answer restarts the follow-up, and 
   // Observations without any response behave exactly as before.
   assert.equal(reminderReason({ status: 'WAITING', dueDate: null, updatedAt: ago(8), generatedEmails: [sentMail(12)] }, NOW, settings), 'STALE_WAITING');
   assert.equal(reminderReason({ status: 'SENT', dueDate: null, updatedAt: ago(1), generatedEmails: [sentMail(2)] }, NOW, settings), null);
+});
+
+// ---------- portal upload abuse ----------
+
+test('a company cannot fill the disk through its link: uploads are limited per hour, per observation and in total', async () => {
+  // rate: the 4th file within the hour is refused, before it is stored
+  let w = world({ env: { PORTAL_UPLOADS_PER_HOUR: '3' } });
+  let token = (await w.open('A')).token;
+  for (let i = 0; i < 3; i++) await w.portal.uploadEvidence(token, 'o-a1', 'PHOTO', undefined, w.file(`photo-${i}.jpg`));
+  const stored = w.db.files.size;
+  await assert.rejects(() => w.portal.uploadEvidence(token, 'o-a1', 'PHOTO', undefined, w.file('une-de-trop.jpg')), status(429, /Trop de fichiers/));
+  await assert.rejects(() => w.portal.assertUploadAllowed(token, 'o-a1', 1000), status(429), 'refused before the file is even received');
+  assert.equal(w.db.files.size, stored, 'nothing more was written');
+  // an hour later the company can send again
+  for (const e of w.db.evidence) e.createdAt = new Date(Date.now() - 2 * 3600000);
+  await w.portal.uploadEvidence(token, 'o-a1', 'PHOTO', undefined, w.file('plus-tard.jpg'));
+
+  // files per observation
+  w = world({ env: { PORTAL_MAX_FILES_PER_OBSERVATION: '2' } });
+  token = (await w.open('A')).token;
+  for (let i = 0; i < 2; i++) await w.portal.uploadEvidence(token, 'o-a1', 'PHOTO', undefined, w.file(`p-${i}.jpg`));
+  await assert.rejects(() => w.portal.uploadEvidence(token, 'o-a1', 'PHOTO', undefined, w.file('p-3.jpg')), status(413, /nombre maximal de justificatifs/));
+
+  // total size: repeated 20 MB files stop at the quota
+  w = world({ env: { PORTAL_MAX_TOTAL_MB: '50' } });
+  token = (await w.open('A')).token;
+  const big = (name: string) => ({ ...w.file(name), size: 20 * 1024 * 1024 });
+  await w.portal.uploadEvidence(token, 'o-a1', 'OTHER', undefined, big('a.pdf'));
+  await w.portal.uploadEvidence(token, 'o-a1', 'OTHER', undefined, big('b.pdf'));
+  await assert.rejects(() => w.portal.uploadEvidence(token, 'o-a1', 'OTHER', undefined, big('c.pdf')), status(413, /espace réservé/));
+  await assert.rejects(() => w.portal.assertUploadAllowed(token, 'o-a1', 20 * 1024 * 1024), status(413), 'the announced size is enough to refuse');
+  assert.equal(w.db.evidence.length, 2);
+  // regenerating the link does not reset the quota
+  const fresh = w.tokenOf((await w.portal.regenerate(w.db.accesses.find((a: any) => !a.revokedAt)!.id, ORG, USER)).link!);
+  await assert.rejects(() => w.portal.uploadEvidence(fresh, 'o-a1', 'OTHER', undefined, big('d.pdf')), status(413));
+});
+
+test('ordinary company uploads are unaffected by the limits, and messages are rate limited too', async () => {
+  const w = world({ env: { PORTAL_RESPONSES_PER_HOUR: '2' } });
+  const token = (await w.open('A')).token;
+  for (const name of ['attestation.pdf', 'photo-avant.jpg', 'photo-apres.jpg', 'pv.pdf']) await w.portal.uploadEvidence(token, 'o-a1', 'OTHER', undefined, w.file(name));
+  await w.portal.assertUploadAllowed(token, 'o-a1', 5 * 1024 * 1024);
+  await w.portal.addResponse(token, 'o-a1', 'Premier message');
+  await w.portal.addResponse(token, 'o-a1', 'Deuxième message');
+  await assert.rejects(() => w.portal.addResponse(token, 'o-a1', 'Troisième message'), status(429, /Trop de messages/));
+});
+
+test('the upload gate checks the link and its scope before any file is received', async () => {
+  const w = world();
+  const token = (await w.open('A')).token;
+  await assert.rejects(() => w.portal.assertUploadAllowed('00000000-0000-4000-8000-000000000000.forged', 'o-a1', 10), status(404));
+  await assert.rejects(() => w.portal.assertUploadAllowed(token, 'o-b1', 10), status(403));
+  const guard = new PortalUploadGuard(w.portal);
+  const context = (params: Row, query: Row) => ({ switchToHttp: () => ({ getRequest: () => ({ params, query, headers: { 'content-length': '1024' } }) }) }) as any;
+  assert.equal(await guard.canActivate(context({ token }, { observationId: 'o-a1' })), true);
+  await assert.rejects(() => guard.canActivate(context({ token: 'nope' }, { observationId: 'o-a1' })), status(404));
+  await assert.rejects(() => guard.canActivate(context({ token }, {})), status(403));
+});
+
+test('a company cannot send HTML or a script disguised as a PDF or a photo', async () => {
+  const w = world();
+  const token = (await w.open('A')).token;
+  const html = Buffer.from('<html><script>alert(document.domain)</script></html>');
+  for (const [name, mimetype] of [['attestation.pdf', 'application/pdf'], ['photo.jpg', 'image/jpeg']]) {
+    await assert.rejects(() => w.portal.uploadEvidence(token, 'o-a1', 'OTHER', undefined, { originalname: name, mimetype, buffer: html, size: html.length } as any), status(400, /Type de fichier non pris en charge/));
+  }
+  assert.equal(w.db.files.size, 0);
+  assert.equal(w.db.evidence.length, 0);
 });
